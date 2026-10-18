@@ -15,12 +15,19 @@ dependencies = [
     "invrs-gym>=1.6.2",
     "invrs-opt>=0.12",
     "imageruler>=0.3",
+    # imageruler needs cv2; the headless wheel avoids libGL (Batch containers)
+    "opencv-python-headless",
     "jax>=0.4.30",
     "numpy",
     "scipy",
     "matplotlib",
     "optax",
 ]
+
+[tool.uv]
+# Never install the GUI OpenCV wheel (needs libGL); opencv-python-headless
+# provides the same cv2 module
+override-dependencies = ["opencv-python; sys_platform == 'never'"]
 
 [dependency-groups]
 dev = ["pytest"]

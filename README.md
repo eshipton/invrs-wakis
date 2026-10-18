@@ -93,6 +93,23 @@ uv run python scripts/run_challenge.py --shard i --nshards 6 --outdir out \
 uv run python scripts/crossval_ceviche.py --shard i --nshards 5 --outdir out [--fine]
 ```
 
+Rendering (matplotlib Agg + pillow, headless):
+
+```bash
+uv run python scripts/render.py --results <collected dir> [--runs]   # gallery.png (+ re-render runs)
+```
+
+Each run directory contains, besides `summary.json`/`params.json`/`design.npy`:
+`snapshots.npz` (density simulated at every iteration, float16, with loss and
+eval metric), `fields.npz` (Wakis DFT fields of the final design at the
+challenge wavelengths and, for ceviche, the |S|² spectrum on a dense grid —
+all from one extra broadband run), and the renders `design.png`,
+`optimization.gif` (design evolving with the eval-metric trace),
+`fields.png` (Re E and |E|² per wavelength with design outline and ports;
+metalens: intensity enhancement map), `wave.gif` (phase sweep
+Re(E e^{iφ}) of the DFT fields) and `spectrum.png` (ceviche: broadband
+|S_j1|² vs the target windows, official values marked).
+
 `run_challenge.py` maps shard i to `specs[i::N]`, where specs are the
 (challenge, seed) pairs. The optimizer stack is the gym's recommendation from
 invrs-opt (MIT):

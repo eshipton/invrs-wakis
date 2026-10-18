@@ -12,10 +12,11 @@ The loss is the challenge's own `loss` of the (Wakis) response.
 
 import json
 import time
-from typing import Callable, List, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import invrs_opt
 import jax
+import numpy as np
 
 from invrs_wakis.analysis import binarize, evaluate
 
@@ -28,6 +29,7 @@ def optimize(
     levelset_steps: int = 80,
     penalty: float = 1.0,
     log: Callable[[dict], None] = print,
+    snapshot: Optional[Callable[[str, int, np.ndarray, float, float], None]] = None,
 ) -> Tuple[object, List[Tuple[str, object]], float, str]:
     """
     Run the stages; return (selected binary params, stage checkpoints,
@@ -35,6 +37,9 @@ def optimize(
 
     The selected design is the thresholded stage result with the best eval
     metric according to `challenge` itself (no official-backend selection).
+    `snapshot(stage, step, density, loss, eval_metric)` is called with the
+    density simulated at every iteration (after the optimizer's filter,
+    projection or levelset transform).
     """
     t0 = time.time()
 
@@ -53,6 +58,8 @@ def optimize(
             state = opt.update(grad=grad, value=value, params=p, state=state)
             log({"stage": name, "step": i, "loss": float(value),
                  "eval_metric": float(metric), "time": time.time() - t0})
+            if snapshot is not None:
+                snapshot(name, i, np.asarray(p.array), float(value), float(metric))
         p = opt.params(state)
         checkpoints.append((name, p))
         return p
@@ -73,6 +80,31 @@ def optimize(
         scored.append((e, name, b))
     best = max(scored, key=lambda s: s[0])
     return best[2], checkpoints, opt_time, best[1]
+
+
+class SnapshotRecorder:
+    """Collects the per-iteration densities (float16) and metrics; `save`
+    writes them to an npz (designs, loss, eval_metric, stage, step)."""
+
+    def __init__(self):
+        self.designs, self.loss, self.metric, self.stage, self.step = [], [], [], [], []
+
+    def __call__(self, stage, step, density, loss, metric):
+        self.designs.append(np.asarray(density, dtype=np.float16))
+        self.loss.append(loss)
+        self.metric.append(metric)
+        self.stage.append(stage)
+        self.step.append(step)
+
+    def save(self, path):
+        np.savez_compressed(
+            path,
+            designs=np.stack(self.designs),
+            loss=np.asarray(self.loss),
+            eval_metric=np.asarray(self.metric),
+            stage=np.asarray(self.stage),
+            step=np.asarray(self.step),
+        )
 
 
 def jsonl_logger(path):
