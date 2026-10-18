@@ -167,6 +167,45 @@ optimizer (`invrs_wakis.lengthscale`, `optimize.optimize_feasible`):
   `summary.json` (`tensor_clamped`). `scripts/check_tensor_gradient.py`
   checks the gradient against finite differences.
 
+### Throughput (measured on Cloud Batch)
+
+`run_challenge.py` runs the (challenge, seed, arm) specs of a task
+concurrently, one single-threaded process each. `--jobs-per-task` defaults
+to the CPU count and is capped by the `wakis.estimate` memory preflight. The
+spawn start method is used, and `OMP/MKL/OPENBLAS_NUM_THREADS=1` and
+`XLA_FLAGS=--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1`
+are set. `--arms r1 robust tensor` adds the objective/smoothing variants to
+the spec list. The task log records the load average every minute.
+
+| setup (bend, smoke config, run time 0.4 ps) | r = 1 iteration | load | specs per vCPU-hour |
+|---|---|---|---|
+| n2-standard-8, 8 concurrent | 29.5 s | 7.8 / 8 | 4.4 |
+| n2-standard-8, 4 concurrent | 14.2 s | 3.9 / 8 | 4.2 |
+| n2-standard-2, 1 per task | 13.6 s | 1.0 / 2 | 4.7 |
+| before: n2-standard-8, 1 per task, BLAS default threads, 0.8 ps | ~19 s | ~1 / 8 | ~0.5 |
+
+The 8 vCPUs are 4 physical cores. Eight jobs per n2-standard-8 therefore
+cost about the same per spec as one job per n2-standard-2, and both are
+about 9× cheaper per spec than before. The default is n2-standard-8 with 8
+jobs: fewer VMs, and enough RAM for the tensor arm.
+
+Other findings from `scripts/profile_iteration.py`:
+- **BLAS thread contention.** The ceviche 10 nm re-check took 1,400–4,500 s
+  and official 40 nm evaluations took 50–200 s per design inside the
+  optimizer process, with default BLAS threads. With one thread per process
+  they take about 30 s and 2–5 s. The re-check therefore stays inline.
+- **Run time.** Shortening the run time after the pulse from 0.8 to 0.4 ps
+  changes |S|² by ≤ 1.1e-4 for the round-1 bend, mode-converter and
+  power-splitter designs, and Nt drops from 9,684 to 5,221. 0.3 ps:
+  ≤ 1.4e-4. A wider pulse (fwidth 0.1–0.2) only shortens the pulse delay:
+  Nt 9,305 / 9,116 at 0.8 ps. The default is now 0.4 ps.
+- **One iteration at r = 1** (bend, 8 concurrent jobs, 0.8 ps): 46 s.
+  `_one_step_cpml` takes 26 s cumulative, of which 15 s is Python overhead
+  per step. The adjoint `_base_step` takes 15 s, CSR/DIA matvecs 8 s. At
+  this size the step is limited by interpreter overhead, not by flops.
+  r = 2: Nt 19,368, 240 s per iteration. r = 2 tensor: Nt 26,285 (Courant
+  0.7), 353 s, peak RSS 4.8 GB (the preflight uses a ×3.4 factor for it).
+
 Why round 1 missed the targets: the `density_lbfgsb` stages use a Gaussian
 filter (FWHM = 3 px) and β ≤ 8, which does not bound the feature size once
 the design is thresholded. Five of the ten selected designs came from these
