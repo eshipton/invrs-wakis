@@ -288,7 +288,7 @@ def run_feasible(name, seed, out, args):
     np.save(out / "latent.npy", np.asarray(latent))
     summary.step("snapshots", lambda: snapshots.save(out / "snapshots.npz"))
 
-    # Score the candidates with the official backend (+ 10 nm re-check)
+    # Score the candidates with the official backend (optionally + 10 nm)
     def as_params(binary):
         lo, hi = params.lower_bound, params.upper_bound
         return dataclasses.replace(params, array=jax.numpy.asarray(np.where(binary, hi, lo), float))
@@ -303,7 +303,7 @@ def run_feasible(name, seed, out, args):
             rec["official_eval_metric"] = evaluate(gym, p)["eval_metric"]
 
         summary.step(f"candidate{k}_official", official)
-        if name != "metalens":
+        if name != "metalens" and args.candidates_10nm:
             def c10(p=p, rec=rec):
                 rec["ceviche_10nm_eval_metric"] = eval_10nm(name, p)["eval_metric"]
 
@@ -376,6 +376,9 @@ def main():
                          "(0 = optimize on the 40 nm grid only)")
     ap.add_argument("--steps-scale", type=float, default=1.0)
     ap.add_argument("--candidates", type=int, default=None)
+    ap.add_argument("--candidates-10nm", action="store_true",
+                    help="also re-check every candidate on the 10 nm ceviche grid "
+                         "(slow: 8-40 min each; the selected design is always re-checked)")
     ap.add_argument("--smoothing", default="none", choices=["none", "tensor"],
                     help="material smoothing of the design in Wakis ('tensor' needs the "
                          "Wakis tensor-averaging feature)")
