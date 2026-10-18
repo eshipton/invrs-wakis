@@ -412,6 +412,9 @@ def main():
     ap.add_argument("--arms", nargs="+", default=None, choices=sorted(ARMS),
                     help="run every (challenge, seed) for each arm: " + "; ".join(
                         f"{k}: {v}" for k, v in sorted(ARMS.items())))
+    ap.add_argument("--specs", nargs="+", default=None,
+                    help="explicit specs challenge:seed[:arm] (replaces the "
+                         "challenges x seeds x arms product)")
     ap.add_argument("--jobs-per-task", type=int, default=None,
                     help="specs run concurrently in this task, one single-threaded process "
                          "each (default: the CPU count, capped by the memory preflight)")
@@ -419,6 +422,11 @@ def main():
 
     arms = args.arms or [None]
     specs = [(c, s, a) for c in args.challenges for s in args.seeds for a in arms]
+    if args.specs:  # explicit list instead of the product
+        specs = []
+        for item in args.specs:
+            c, s, *a = item.split(":")
+            specs.append((c, int(s), a[0] if a else None))
     mine = specs[args.shard :: args.nshards]
     start_load_logger()
     jobs = args.jobs_per_task or os.cpu_count() or 1
