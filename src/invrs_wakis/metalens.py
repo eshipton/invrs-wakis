@@ -96,6 +96,8 @@ class MetalensGeometry:
         if spec.width_pml != 0:
             raise NotImplementedError("Only the periodic (width_pml = 0) metalens is supported.")
         check_smoothing(options.smoothing)
+        if options.smoothing != "none":
+            raise NotImplementedError("Tensor smoothing is wired for the ceviche bridge only.")
         self.spec, self.options = spec, options
         self.r = r = int(options.resolution)
         self.g = spec.grid_spacing * UM

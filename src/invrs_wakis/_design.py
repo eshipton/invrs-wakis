@@ -79,6 +79,10 @@ class PixelDesign:
 
 SMOOTHING_MODES = ("none", "tensor")
 
+# Total number of solver setups in this process whose tensor operator clamped
+# couplings (n_clamped > 0: the gradient is then not exact)
+TENSOR_CLAMPED = {"setups": 0, "clamped_setups": 0, "max_n_clamped": 0}
+
 
 def check_smoothing(smoothing: str) -> None:
     """
@@ -86,17 +90,16 @@ def check_smoothing(smoothing: str) -> None:
 
     'none' (default): every Wakis E sample takes the permittivity of the gym
     pixel(s) it lies in (`PixelDesign`). 'tensor': Meep-style anisotropic
-    subpixel averaging of the density (arithmetic mean for E parallel to an
-    interface, harmonic mean for E normal to it), to be provided by the Wakis
-    `MaterialGrid` (Wakis branch feature/tensor-averaging, not yet on
-    develop). Until the installed Wakis exposes it this raises
-    NotImplementedError, so a run cannot silently fall back to 'none'.
+    subpixel averaging of the density by `wakis.inverse.MaterialGrid(...,
+    smoothing='tensor')` (fill fraction = linearly interpolated density,
+    interface normal = density gradient; exact adjoint), see
+    `PaddedMaterialGrid`.
 
-    Note: in the ceviche (Ez) problem with an integer `resolution`, every Ez
-    sample lies inside a single gym pixel and E is parallel to all pixel
-    interfaces, so tensor averaging of a *binary pixel* design reproduces
-    the 'none' permittivities; it matters for gray densities sampled
-    off-centre, graded meshes and the metalens (in-plane E).
+    Note: in the ceviche (Ez) problem E is parallel to every interface in
+    the plane, so the averaged inverse permittivity of an Ez edge is
+    1/<eps> (arithmetic mean over the fill fraction). At resolution 1 the Ez
+    samples sit at the pixel centres (fill fraction = pixel density), so
+    'tensor' only changes the r >= 2 simulations.
     """
     if smoothing not in SMOOTHING_MODES:
         raise ValueError(f"smoothing must be one of {SMOOTHING_MODES}, got {smoothing!r}")
@@ -107,10 +110,66 @@ def check_smoothing(smoothing: str) -> None:
 
         if "smoothing" not in inspect.signature(MaterialGrid.__init__).parameters:
             raise NotImplementedError(
-                "smoothing='tensor' needs Wakis MaterialGrid(smoothing=...) "
-                "(feature/tensor-averaging); the installed Wakis does not provide it."
+                "smoothing='tensor' needs Wakis with MaterialGrid(smoothing=...) "
+                "(develop ac275ba or later)."
             )
-        raise NotImplementedError(
-            "Wakis provides MaterialGrid smoothing; wire it into the invrs-wakis "
-            "design map (PixelDesign -> MaterialGrid) before using smoothing='tensor'."
-        )
+
+
+class PaddedMaterialGrid:
+    """
+    Wakis `MaterialGrid(smoothing='tensor')` over the gym's pixel densities.
+
+    The MaterialGrid nodes are the gym pixel centres of the design region
+    plus a one-pixel frame taken from the (fixed) background density, so
+    that edges between the outermost pixel centres and the design-region
+    boundary interpolate towards the real surroundings (waveguide stubs,
+    cladding) instead of being left out. The frame is constant, so the
+    gradient is the interior block of the MaterialGrid gradient.
+
+    Parameters
+    ----------
+    center, size : tuple of float
+        Box spanned by the frame pixel centres [m] (z size 0).
+    frame : ndarray
+        Background density on the (nx + 2, ny + 2) padded pixel grid
+        (interior values are ignored).
+    eps_min, eps_max : float
+        Relative permittivity at density 0 and 1.
+    """
+
+    def __init__(self, center, size, frame, eps_min, eps_max):
+        from wakis.inverse import MaterialGrid
+
+        self.frame = np.asarray(frame, dtype=float)
+        self.shape = (self.frame.shape[0] - 2, self.frame.shape[1] - 2)
+        self.grid = MaterialGrid(center, size, self.frame.shape + (1,), eps_min, eps_max,
+                                 smoothing="tensor")
+        self.smoothing = "tensor"
+
+    def _pad(self, rho):
+        full = self.frame.copy()
+        full[1:-1, 1:-1] = np.asarray(rho, dtype=float).reshape(self.shape)
+        return full[:, :, None]
+
+    @property
+    def flat_idx(self):
+        return self.grid.flat_idx
+
+    def apply(self, solver, rho):
+        self.grid.apply(solver, self._pad(rho))
+        op = getattr(solver, "tensor_operator", None)
+        n = int(getattr(op, "n_clamped", 0)) if op is not None else 0
+        TENSOR_CLAMPED["setups"] += 1
+        if n:
+            TENSOR_CLAMPED["clamped_setups"] += 1
+            TENSOR_CLAMPED["max_n_clamped"] = max(TENSOR_CLAMPED["max_n_clamped"], n)
+
+    def dispersive_group(self, solver):
+        return None
+
+    def vjp(self, rho, grad_ieps, pair_grad=None):
+        g = self.grid.vjp(self._pad(rho), grad_ieps, pair_grad)
+        return np.asarray(g)[1:-1, 1:-1, 0]
+
+    def __getattr__(self, name):  # remaining MaterialGrid interface
+        return getattr(self.__dict__["grid"], name)

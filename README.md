@@ -154,9 +154,18 @@ optimizer (`invrs_wakis.lengthscale`, `optimize.optimize_feasible`):
   the invrs leaderboard measures it: imageruler on the design array alone,
   with default settings. `length_scale_solid_void_px` includes 4 pixels of
   the surrounding waveguides.
-- **Smoothing.** `--smoothing tensor` selects Wakis MaterialGrid tensor
-  subpixel averaging. It raises an error until that Wakis feature is
-  available.
+- **Smoothing.** `--smoothing tensor` uses Wakis
+  `MaterialGrid(smoothing='tensor')` for the r ≥ 2 simulations
+  (`PaddedMaterialGrid`). Its nodes are the gym pixel centres plus a frame of
+  background pixels. In the Ez problem this gives each Ez edge
+  1/<eps> over the linearly interpolated fill fraction. At r = 1 the Ez
+  samples sit at the pixel centres, so tensor averaging changes nothing
+  there and is not applied. The time step is lowered to 0.7 of the 2D
+  limit, because the tensor couplings tighten the stability bound
+  (Si/SiO2 designs give mu_max ≈ 0.31). Setups whose tensor operator
+  clamped couplings, which makes the gradient inexact, are counted in
+  `summary.json` (`tensor_clamped`). `scripts/check_tensor_gradient.py`
+  checks the gradient against finite differences.
 
 Why round 1 missed the targets: the `density_lbfgsb` stages use a Gaussian
 filter (FWHM = 3 px) and β ≤ 8, which does not bound the feature size once

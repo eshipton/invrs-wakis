@@ -97,9 +97,12 @@ def build(name, args, resolution=1):
     from invrs_wakis.ceviche import SimOptions, wakis_ceviche_challenge
 
     estimator = args.estimator if resolution == 1 else "modal"
+    # Tensor averaging leaves the r = 1 Ez problem unchanged (samples at the
+    # pixel centres), so it is only used for the finer resolutions
+    smoothing = args.smoothing if resolution > 1 else "none"
     return wakis_ceviche_challenge(name, SimOptions(
         resolution=resolution, port_estimator=estimator, run_time=args.run_time,
-        smoothing=args.smoothing))
+        smoothing=smoothing))
 
 
 def ceviche_post(name, challenge, gym, best, summary):
@@ -285,6 +288,11 @@ def run_feasible(name, seed, out, args):
         n_candidates=int(args.candidates or cfg.get("n_candidates", 4)),
     )
     summary.update(optimization_time_s=opt_time)
+    if args.smoothing == "tensor":
+        from invrs_wakis._design import TENSOR_CLAMPED
+
+        # Exact gradient only while no setup clamped tensor couplings
+        summary["tensor_clamped"] = dict(TENSOR_CLAMPED)
     np.save(out / "latent.npy", np.asarray(latent))
     summary.step("snapshots", lambda: snapshots.save(out / "snapshots.npz"))
 
@@ -380,8 +388,8 @@ def main():
                     help="also re-check every candidate on the 10 nm ceviche grid "
                          "(slow: 8-40 min each; the selected design is always re-checked)")
     ap.add_argument("--smoothing", default="none", choices=["none", "tensor"],
-                    help="material smoothing of the design in Wakis ('tensor' needs the "
-                         "Wakis tensor-averaging feature)")
+                    help="material smoothing of the design in the r >= 2 Wakis "
+                         "simulations ('tensor': MaterialGrid tensor subpixel averaging)")
     ap.add_argument("--machine", default=None,
                     help="machine type the run executes on (wakis.estimate.MACHINES, e.g. "
                          "n2-standard-8): abort before simulating if the estimated peak memory "

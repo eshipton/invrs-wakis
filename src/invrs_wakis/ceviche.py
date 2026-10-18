@@ -53,7 +53,7 @@ from wakis.field_monitors import _flat_index
 from wakis.inverse import AdjointSimulation, jax_simulation, mode_amplitudes
 from wakis.sources import GaussianSource
 
-from invrs_wakis._design import PixelDesign, check_smoothing
+from invrs_wakis._design import PaddedMaterialGrid, PixelDesign, check_smoothing
 from invrs_wakis._modes import PolarizedModeMonitor, PolarizedModeSource
 
 jax.config.update("jax_enable_x64", True)
@@ -142,7 +142,15 @@ class CevicheGeometry:
             else int(options.pml_cells)
         )
         # 2D stability limit of the leapfrog scheme (no z derivatives)
-        self.dt = options.courant * self.h / (C0 * np.sqrt(2.0))
+        self.dt_2d = self.h / (C0 * np.sqrt(2.0))
+        courant = options.courant
+        if options.smoothing == "tensor":
+            # The off-diagonal tensor couplings lower the stable step
+            # to dt_2d / sqrt(1 + mu_max) (wakis.tensor_averaging.
+            # bound_stable_dt); mu_max ~ 0.31 for Si/SiO2 pixel designs, and
+            # Wakis raises if a design needs a smaller step
+            courant = min(courant, 0.7)
+        self.dt = courant * self.dt_2d
         # Pixel of each grid node (N + 1 nodes per axis, the last on the wall)
         self.node_pixel = [
             np.minimum((np.arange(r * n + 1) + 0.5) // r, n - 1).astype(int)
@@ -172,6 +180,10 @@ class CevicheGeometry:
             dt=self.dt,
             verbose=0,
         )
+        if self.options.smoothing == "tensor":
+            # Stability bound of the tensor step relative to the 2D limit (the
+            # single periodic z cell adds no z derivative)
+            solver.conformal_dt_max = self.dt_2d
         eps = self._eps_bg_nodes
         for comp in "xyz":
             # Scaling keeps the zero ieps of PEC walls and ghost samples; with
@@ -206,7 +218,7 @@ class CevicheGeometry:
     def num_steps(self, source):
         return int(np.ceil((source.t0 + self.options.run_time) / self.dt))
 
-    def design(self) -> PixelDesign:
+    def design(self):
         """
         Design map: every Ez edge (grid node) inside the design region takes
         the permittivity of the gym pixel containing it (one weight 1 per
@@ -215,6 +227,12 @@ class CevicheGeometry:
         x0, y0, x1, y1 = self.design_coords
         shape = self.design_shape
         px, py = self.node_pixel
+        if self.options.smoothing == "tensor":
+            dl = self.dl
+            frame = np.asarray(self.model.density_bg, float)[x0 - 1 : x1 + 1, y0 - 1 : y1 + 1]
+            center = (0.5 * (x0 + x1) * dl, 0.5 * (y0 + y1) * dl, 0.0)
+            size = ((x1 - x0 + 1) * dl, (y1 - y0 + 1) * dl, 0.0)
+            return PaddedMaterialGrid(center, size, frame, self.eps_clad, self.eps_slab)
 
         def build(solver):
             ii = np.flatnonzero((px >= x0) & (px < x1))

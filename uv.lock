@@ -649,7 +649,7 @@ requires-dist = [
     { name = "opencv-python-headless" },
     { name = "optax" },
     { name = "scipy" },
-    { name = "wakis", git = "https://github.com/eshipton/Wakis.git?rev=b77b8b8154a5deba25f8ba1cad43b4752cfbe600" },
+    { name = "wakis", git = "https://github.com/eshipton/Wakis.git?rev=ac275ba43ad28d6a72f864dcd925bb908a332aed" },
 ]
 
 [package.metadata.requires-dev]
@@ -1818,7 +1818,7 @@ wheels = [
 [[package]]
 name = "wakis"
 version = "0.8.0"
-source = { git = "https://github.com/eshipton/Wakis.git?rev=b77b8b8154a5deba25f8ba1cad43b4752cfbe600#b77b8b8154a5deba25f8ba1cad43b4752cfbe600" }
+source = { git = "https://github.com/eshipton/Wakis.git?rev=ac275ba43ad28d6a72f864dcd925bb908a332aed#ac275ba43ad28d6a72f864dcd925bb908a332aed" }
 dependencies = [
     { name = "h5py" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
