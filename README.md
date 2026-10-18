@@ -182,11 +182,13 @@ the spec list. The task log records the load average every minute.
 | n2-standard-8, 8 concurrent | 29.5 s | 7.8 / 8 | 4.4 |
 | n2-standard-8, 4 concurrent | 14.2 s | 3.9 / 8 | 4.2 |
 | n2-standard-2, 1 per task | 13.6 s | 1.0 / 2 | 4.7 |
-| before: n2-standard-8, 1 per task, BLAS default threads, 0.8 ps | ~19 s | ~1 / 8 | ~0.5 |
+| before: n2-standard-8, 1 per task, default BLAS threads, 0.8 ps | ~19 s | ~1 / 8 | ~0.1–0.2 (estimated) |
 
 The 8 vCPUs are 4 physical cores. Eight jobs per n2-standard-8 therefore
-cost about the same per spec as one job per n2-standard-2, and both are
-about 9× cheaper per spec than before. The default is n2-standard-8 with 8
+cost about the same per spec as one job per n2-standard-2. The "before"
+row is estimated from the round-2 pilot timings (19 s iterations, 50–200 s
+official evaluations, 1,400–4,500 s 10 nm re-check), so the new setups are
+roughly 20× cheaper per spec. The default is n2-standard-8 with 8
 jobs: fewer VMs, and enough RAM for the tensor arm.
 
 Other findings from `scripts/profile_iteration.py`:
