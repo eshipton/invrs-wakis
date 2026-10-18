@@ -35,9 +35,17 @@ def simulation_estimate(name, challenge) -> Estimate:
         ports = list(g.model.ports)
         monitors = [(len(wl), 2 * g.r * int(p.width), 3) for p in ports]
     store = np.dtype(comp.options.store_dtype).itemsize
-    return estimate(cells, steps=steps, dtype="float64", backend="cpu", cpml=True,
-                    monitors=monitors, adjoint={"design_edges": design_edges,
-                                                "store_bytes": store})
+    est = estimate(cells, steps=steps, dtype="float64", backend="cpu", cpml=True,
+                   monitors=monitors, adjoint={"design_edges": design_edges,
+                                               "store_bytes": store})
+    if getattr(comp.options, "smoothing", "none") == "tensor":
+        # Measured: bend r = 2 tensor run peaks at 4.8 GB RSS vs 1.44 GB
+        # estimated without the tensor operator (profile_iteration.py)
+        est.host_bytes *= TENSOR_MEMORY_FACTOR
+    return est
+
+
+TENSOR_MEMORY_FACTOR = 3.4
 
 
 def run_preflight(name, challenges_by_resolution, machine, extra_sims=1, log=print):

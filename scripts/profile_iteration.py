@@ -16,6 +16,8 @@ import os
 
 for _v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
     os.environ.setdefault(_v, "1")
+os.environ.setdefault("XLA_FLAGS", "--xla_cpu_multi_thread_eigen=false "
+                                   "intra_op_parallelism_threads=1")
 
 import argparse  # noqa: E402
 import concurrent.futures  # noqa: E402

@@ -30,6 +30,9 @@ os.environ.setdefault("MPLBACKEND", "Agg")  # headless batch containers
 for _v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
            "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
     os.environ.setdefault(_v, "1")
+# ... and no XLA intra-op thread pool (the JAX work per iteration is tiny)
+os.environ.setdefault("XLA_FLAGS", "--xla_cpu_multi_thread_eigen=false "
+                                   "intra_op_parallelism_threads=1")
 
 import argparse  # noqa: E402
 import concurrent.futures  # noqa: E402
@@ -380,7 +383,9 @@ def main():
     ap.add_argument("--levelset-steps", type=int, default=80)
     ap.add_argument("--penalty", type=float, default=1.0)
     ap.add_argument("--estimator", default="ceviche", choices=["ceviche", "modal"])
-    ap.add_argument("--run-time", type=float, default=0.8e-12)
+    ap.add_argument("--run-time", type=float, default=0.4e-12,
+                    help="simulated time after the source peak [s] (0.4 ps: |S|^2 within "
+                         "1.1e-4 of 0.8 ps for the round-1 designs, 1.85x fewer steps)")
     ap.add_argument("--metalens-resolution", type=int, default=1)
     ap.add_argument("--no-render", action="store_true")
     # Round 2
