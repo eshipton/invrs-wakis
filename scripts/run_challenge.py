@@ -24,8 +24,16 @@ Example (cloud, one task per challenge):
 import os
 
 os.environ.setdefault("MPLBACKEND", "Agg")  # headless batch containers
+# One BLAS/OpenMP thread per process: parallelism comes from running several
+# specs concurrently (--jobs-per-task); set before NumPy/SciPy are imported,
+# also in the spawned workers (they re-import this module)
+for _v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+           "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    os.environ.setdefault(_v, "1")
 
 import argparse  # noqa: E402
+import concurrent.futures  # noqa: E402
+import multiprocessing  # noqa: E402
 import dataclasses  # noqa: E402
 import json  # noqa: E402
 import pathlib  # noqa: E402
@@ -396,16 +404,114 @@ def main():
                          "does not fit")
     ap.add_argument("--preflight-only", action="store_true",
                     help="only log the memory estimate (no simulation)")
+    ap.add_argument("--arms", nargs="+", default=None, choices=sorted(ARMS),
+                    help="run every (challenge, seed) for each arm: " + "; ".join(
+                        f"{k}: {v}" for k, v in sorted(ARMS.items())))
+    ap.add_argument("--jobs-per-task", type=int, default=None,
+                    help="specs run concurrently in this task, one single-threaded process "
+                         "each (default: the CPU count, capped by the memory preflight)")
     args = ap.parse_args()
 
-    specs = [(c, s) for c in args.challenges for s in args.seeds]
-    for name, seed in specs[args.shard :: args.nshards]:
-        out = pathlib.Path(args.outdir) / f"{name}_seed{seed}"
-        out.mkdir(parents=True, exist_ok=True)
-        if args.config:
-            run_feasible(name, seed, out, args)
-        else:
-            run(name, seed, out, args)
+    arms = args.arms or [None]
+    specs = [(c, s, a) for c in args.challenges for s in args.seeds for a in arms]
+    mine = specs[args.shard :: args.nshards]
+    start_load_logger()
+    jobs = args.jobs_per_task or os.cpu_count() or 1
+    jobs = min(jobs, len(mine), memory_cap(mine, args))
+    print(f"[driver] {len(mine)} specs, {jobs} concurrent on {os.cpu_count()} cpus", flush=True)
+    if jobs <= 1 or args.preflight_only:
+        for spec in mine:
+            run_spec(spec, vars(args))
+        return
+    ctx = multiprocessing.get_context("spawn")
+    with concurrent.futures.ProcessPoolExecutor(jobs, mp_context=ctx) as pool:
+        futures = {pool.submit(run_spec, spec, vars(args)): spec for spec in mine}
+        for f in concurrent.futures.as_completed(futures):
+            print(f"[driver] {futures[f]} done: {f.result()}", flush=True)
+
+
+# Arms of a sweep: overrides of the command-line arguments
+ARMS = {
+    "r1": {"r2_weight": 0.0, "smoothing": "none"},
+    "robust": {"smoothing": "none"},
+    "tensor": {"smoothing": "tensor"},
+}
+def spec_dir(args, name, seed, arm):
+    suffix = f"_{arm}" if arm else ""
+    return pathlib.Path(args.outdir) / f"{name}_seed{seed}{suffix}"
+
+
+def run_spec(spec, argd):
+    """One (challenge, seed, arm) in this process; errors are isolated (written
+    to <dir>/error.txt) so that the other specs of the task keep running."""
+    name, seed, arm = spec
+    args = argparse.Namespace(**argd)
+    for k, v in ARMS.get(arm, {}).items():
+        setattr(args, k, v)
+    out = spec_dir(args, name, seed, arm)
+    out.mkdir(parents=True, exist_ok=True)
+    t = time.time()
+    try:
+        (run_feasible if args.config else run)(name, seed, out, args)
+        return f"ok after {time.time() - t:.0f} s"
+    except Exception:  # noqa: BLE001 - isolate failures per spec
+        (out / "error.txt").write_text(traceback.format_exc())
+        print(f"[{name} seed {seed} {arm}] failed:\n{traceback.format_exc()}", flush=True)
+        return f"FAILED after {time.time() - t:.0f} s"
+
+
+def machine_ram(args):
+    from wakis.estimate import MACHINES
+
+    if args.machine in MACHINES:
+        return MACHINES[args.machine]["ram"]
+    return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+
+
+def memory_cap(specs, args):
+    """Number of specs that fit in RAM at once (wakis.estimate preflight of
+    the largest spec, 85 % of the machine's RAM usable)."""
+    from invrs_wakis.resources import run_preflight
+
+    worst = 0.0
+    for name in {s[0] for s in specs}:
+        for arm in {s[2] for s in specs}:
+            a = argparse.Namespace(**vars(args))
+            for k, v in ARMS.get(arm, {}).items():
+                setattr(a, k, v)
+            rs = [1]
+            if a.config:
+                stages = apply_overrides(load_config(a.config, name)["stages"], a)
+                rs = sorted({r for st in stages for r in st["weights"]} | {1})
+            chs = {r: build(name, a, resolution=r)[0] for r in rs}
+            info = run_preflight(name, chs, None, log=lambda _: None)
+            worst = max(worst, info["total_host_GB"] * 1e9)
+    cap = max(1, int(0.85 * machine_ram(args) // worst))
+    print(f"[driver] preflight: worst spec {worst / 1e9:.1f} GB -> at most {cap} concurrent "
+          f"in {machine_ram(args) / 1e9:.0f} GB", flush=True)
+    return cap
+
+
+def start_load_logger(interval=60.0):
+    """Log the load average and memory use every `interval` s (daemon thread)."""
+    import threading
+
+    def loop():
+        n = os.cpu_count() or 1
+        while True:
+            l1, _, _ = os.getloadavg()
+            try:
+                import psutil
+
+                mem = psutil.virtual_memory()
+                extra = f" cpu {psutil.cpu_percent():.0f} % mem {mem.used / 1e9:.1f} GB"
+            except ImportError:
+                extra = ""
+            print(f"[load] {time.strftime('%H:%M:%S')} loadavg1 {l1:.2f} / {n} cpus"
+                  f" ({100 * l1 / n:.0f} %){extra}", flush=True)
+            time.sleep(interval)
+
+    threading.Thread(target=loop, daemon=True).start()
 
 
 if __name__ == "__main__":
