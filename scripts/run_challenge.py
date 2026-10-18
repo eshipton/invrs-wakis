@@ -193,6 +193,9 @@ def run(name, seed, out, args):
     t0 = time.time()
     summary = Summary(out / "summary.json", challenge=name, seed=seed, args=vars(args))
     challenge, gym = build(name, args)
+    summary["preflight"] = preflight(name, {1: challenge}, args)
+    if args.preflight_only:
+        return
     params = challenge.component.init(jax.random.PRNGKey(seed))
     snapshots = SnapshotRecorder()
     best, _, opt_time, stage = optimize(
@@ -207,6 +210,14 @@ def run(name, seed, out, args):
     summary.step("snapshots", lambda: snapshots.save(out / "snapshots.npz"))
 
     post(name, challenge, gym, best, summary, out, args, t0)
+
+
+def preflight(name, challenges_by_r, args):
+    """Log the wakis.estimate memory estimate; abort (MemoryError) if the run
+    does not fit --machine."""
+    from invrs_wakis.resources import run_preflight
+
+    return run_preflight(name, challenges_by_r, args.machine)
 
 
 def load_config(path, name):
@@ -259,6 +270,9 @@ def run_feasible(name, seed, out, args):
     built = {r: build(name, args, resolution=r) for r in resolutions}
     challenges_by_r = {r: b[0] for r, b in built.items()}
     gym = built[1][1]
+    summary["preflight"] = preflight(name, challenges_by_r, args)
+    if args.preflight_only:
+        return
     params = gym.component.init(jax.random.PRNGKey(seed))
     feasible = FeasibleDensity(params, filter_radius=cfg.get("filter_radius"))
     summary.update(filter_radius_px=feasible.filter_radius,
@@ -365,6 +379,12 @@ def main():
     ap.add_argument("--smoothing", default="none", choices=["none", "tensor"],
                     help="material smoothing of the design in Wakis ('tensor' needs the "
                          "Wakis tensor-averaging feature)")
+    ap.add_argument("--machine", default=None,
+                    help="machine type the run executes on (wakis.estimate.MACHINES, e.g. "
+                         "n2-standard-8): abort before simulating if the estimated peak memory "
+                         "does not fit")
+    ap.add_argument("--preflight-only", action="store_true",
+                    help="only log the memory estimate (no simulation)")
     args = ap.parse_args()
 
     specs = [(c, s) for c in args.challenges for s in args.seeds]
