@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "invrs-wakis"
+version = "0.1.0"
+description = "Wakis FIT time-domain backend (with exact discrete adjoint) for the invrs-gym photonic inverse-design challenges"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    # Wakis develop (eshipton fork) at the commit this package was tested with
+    "wakis @ git+https://github.com/eshipton/Wakis.git@311499c9b837b52aeeb3d20110fc7498ee2b29ad",
+    "invrs-gym>=1.6.2",
+    "invrs-opt>=0.12",
+    "imageruler>=0.3",
+    "jax>=0.4.30",
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "optax",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+markers = ["slow: long-running tests (minutes)"]
+testpaths = ["tests"]
