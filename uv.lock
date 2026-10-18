@@ -644,7 +644,7 @@ requires-dist = [
     { name = "numpy" },
     { name = "optax" },
     { name = "scipy" },
-    { name = "wakis", git = "https://github.com/eshipton/Wakis.git?rev=311499c9b837b52aeeb3d20110fc7498ee2b29ad" },
+    { name = "wakis", git = "https://github.com/eshipton/Wakis.git?rev=0a3e1cd22bee039ce04e93e68ad95a647c1e3a65" },
 ]
 
 [package.metadata.requires-dev]
@@ -1802,7 +1802,7 @@ wheels = [
 [[package]]
 name = "wakis"
 version = "0.8.0"
-source = { git = "https://github.com/eshipton/Wakis.git?rev=311499c9b837b52aeeb3d20110fc7498ee2b29ad#311499c9b837b52aeeb3d20110fc7498ee2b29ad" }
+source = { git = "https://github.com/eshipton/Wakis.git?rev=0a3e1cd22bee039ce04e93e68ad95a647c1e3a65#0a3e1cd22bee039ce04e93e68ad95a647c1e3a65" }
 dependencies = [
     { name = "h5py" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
