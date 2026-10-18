@@ -123,6 +123,49 @@ ceviche challenges, fmmax for the metalens. The script records the
 binarization degree, the imageruler length scales and the runtime. It writes
 `summary.json`, `params.json`, `design.npy`, `design.png` and `log.jsonl`.
 
+## Round 2: guaranteed length scale, robustness, longer runs
+
+`run_challenge.py --config configs/round2.json` switches to the round-2
+optimizer (`invrs_wakis.lengthscale`, `optimize.optimize_feasible`):
+
+- **Parameterization.** latent → gym symmetries → conic filter (radius =
+  mean of the minimum width/spacing targets, 3 px) → tanh projection
+  (Wang et al. 2011) → fixed pixels.
+- **β continuation.** L-BFGS-B stages on the gray projected density at
+  β = 4, 8, 16, 32.
+- **Length scale by construction.** `FeasibleDensity.repair` thresholds the
+  design and alternates opening (min-width brush) and closing (min-spacing
+  brush), using imageruler's own brushes and morphology. It re-imposes the
+  fixed pixels and symmetries. Any narrow necks that remain are grown until
+  imageruler measures both targets. In the last stage (β = 64, Adam) the
+  simulated design *is* the repaired binary design, and the gradient flows
+  through the filter and projection (straight-through estimator). Every
+  design that stage evaluates is therefore feasible.
+- **Candidates.** The best `n_candidates` feasible designs (by the Wakis
+  r = 1 eval metric) are scored with the official gym backend and
+  re-checked on the 10 nm ceviche grid. The best official one is kept, and
+  all of them are listed in `summary.json` (`candidates`).
+- **Robust objective.** A stage's `weights` {resolution: w} averages the gym
+  loss over Wakis discretizations. r = 1 is the 40 nm grid with the
+  official-matching `ceviche` estimator. r = 2 is 20 nm (4 cells per 40 nm
+  design pixel) with the `modal` estimator. `--r2-weight 0` optimizes on the
+  40 nm grid only.
+- **Length scale reporting.** `length_scale_leaderboard_px` is measured as
+  the invrs leaderboard measures it: imageruler on the design array alone,
+  with default settings. `length_scale_solid_void_px` includes 4 pixels of
+  the surrounding waveguides.
+- **Smoothing.** `--smoothing tensor` selects Wakis MaterialGrid tensor
+  subpixel averaging. It raises an error until that Wakis feature is
+  available.
+
+Why round 1 missed the targets: the `density_lbfgsb` stages use a Gaussian
+filter (FWHM = 3 px) and β ≤ 8, which does not bound the feature size once
+the design is thresholded. Five of the ten selected designs came from these
+stages. The `levelset_lbfgsb` stage enforces the length scale only as a
+penalty (weight 1), and its final iterate still measured 1–2 px in 8 of 10
+runs. Round 1 also measured the length scale with the surrounding waveguides
+included, which differs from the leaderboard's measurement.
+
 ## Results
 
 To be filled in from the cloud sweep.

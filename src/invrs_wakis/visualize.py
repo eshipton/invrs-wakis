@@ -546,6 +546,11 @@ def gallery(results_dir, path):
             ax1.set_xlim(x.min(), x.max())
             ax1.set_ylim(y.min(), y.max())
             metric = f"eval metric {summ['official_eval_metric']:+.3f}"
+            ls = summ.get("length_scale_leaderboard_px")
+            if ls:
+                metric += f"\nlength scale {ls[0]}/{ls[1]} px"
+            if summ.get("ceviche_10nm_eval_metric") is not None:
+                metric += f" · 10 nm {summ['ceviche_10nm_eval_metric']:+.2f}"
         _bare(ax0)
         _bare(ax1)
         ax0.set_title(f"{short_name(c)}\n{metric}", fontsize=8.5)
