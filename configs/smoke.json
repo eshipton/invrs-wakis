@@ -1,0 +1,16 @@
+{
+  "_doc": "End-to-end smoke test: a few steps of every stage type, both resolutions.",
+  "defaults": {"init": "gym", "filter_radius": null, "n_candidates": 2},
+  "ceviche_lightweight_waveguide_bend": {
+    "stages": [
+      {"beta": 4, "steps": 3}, {"beta": 32, "steps": 3},
+      {"beta": 64, "steps": 3, "ste": true, "optimizer": "adam", "lr": 0.02, "weights": {"1": 1.0, "2": 1.0}}
+    ]
+  },
+  "ceviche_lightweight_mode_converter": {
+    "stages": [
+      {"beta": 8, "steps": 3},
+      {"beta": 64, "steps": 2, "ste": true, "optimizer": "adam", "lr": 0.02, "weights": {"1": 1.0, "2": 1.0}}
+    ]
+  }
+}

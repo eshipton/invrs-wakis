@@ -116,3 +116,169 @@ def jsonl_logger(path):
         print(rec, flush=True)
 
     return log
+
+
+# ---------------------------------------------------------------------------
+# Round 2: length-scale-feasible parameterization, beta continuation,
+# straight-through stages, multi-resolution objective
+
+
+def multi_resolution_loss(challenges, weights):
+    """
+    loss_fn(rho_params) -> (weighted mean loss, {resolution: eval metric}).
+
+    Parameters
+    ----------
+    challenges : dict
+        {resolution: Wakis challenge}; all share the gym's loss/eval metric.
+    weights : dict
+        {resolution: weight}; resolutions with weight 0 are not simulated.
+    """
+    active = [r for r in challenges if weights.get(r, 0.0) > 0.0]
+    wsum = sum(weights[r] for r in active)
+
+    def loss_fn(p):
+        total, metrics = 0.0, {}
+        for r in active:
+            response, _ = challenges[r].component.response(p)
+            total = total + weights[r] * challenges[r].loss(response)
+            metrics[r] = challenges[r].eval_metric(response)
+        return total / wsum, metrics
+
+    return loss_fn
+
+
+class CandidatePool:
+    """Feasible (length-scale repaired) designs seen during the run, ranked
+    by the Wakis r = 1 eval metric (which tracks the official metric)."""
+
+    def __init__(self, size):
+        self.size = size
+        self.items = {}  # design bytes -> record
+
+    def add(self, binary, metrics, stage, step):
+        key = np.asarray(binary, bool).tobytes()
+        score = float(metrics.get(1, min(metrics.values())))
+        rec = {"design": np.asarray(binary, bool), "stage": stage, "step": step,
+               "wakis_metrics": {int(k): float(v) for k, v in metrics.items()}, "score": score}
+        if key not in self.items or score > self.items[key]["score"]:
+            self.items[key] = rec
+
+    def top(self):
+        return sorted(self.items.values(), key=lambda r: -r["score"])[: self.size]
+
+
+def optimize_feasible(
+    challenges,
+    feasible,
+    latent0,
+    stages,
+    log: Callable[[dict], None] = print,
+    snapshot: Optional[Callable] = None,
+    n_candidates: int = 4,
+):
+    """
+    Staged optimization over the latent of a `FeasibleDensity`.
+
+    Parameters
+    ----------
+    challenges : dict
+        {resolution: Wakis challenge}; resolution 1 must be present (it is
+        the discretization the official evaluator uses).
+    feasible : invrs_wakis.lengthscale.FeasibleDensity
+        Parameterization (filter, projection, length-scale repair).
+    latent0 : array
+        Initial latent (pixels, gym bounds).
+    stages : list of dict
+        Each with keys 'beta', 'steps', and optionally 'optimizer'
+        ('lbfgsb' | 'adam'), 'lr' (Adam), 'ste' (bool: simulate the
+        repaired binary design, straight-through gradient), 'weights'
+        ({resolution: weight}, default {1: 1}), 'name'.
+    n_candidates : int
+        Number of best feasible designs returned.
+
+    Returns
+    -------
+    (candidates, latent, optimization time [s]) where candidates is a list
+    of dicts (design (bool), stage, step, wakis_metrics, score), best first.
+    Every candidate meets the length-scale targets (imageruler).
+    """
+    import optax
+    from totypes import types
+
+    t0 = time.time()
+    seed = feasible.seed
+    pool = CandidatePool(n_candidates)
+    latent = jnp_array(latent0)
+
+    def as_params(rho):
+        return dataclasses_replace(seed, array=rho)
+
+    for k, st in enumerate(stages):
+        beta = float(st["beta"])
+        ste = bool(st.get("ste", False))
+        weights = {int(r): float(w) for r, w in st.get("weights", {1: 1.0}).items()}
+        name = st.get("name") or f"{'ste' if ste else 'density'}_beta{beta:g}"
+        loss_r = multi_resolution_loss(challenges, weights)
+        to_rho = (lambda l: feasible.ste_density(l, beta)) if ste else (
+            lambda l: feasible.projected(l, beta))
+
+        def loss_fn(l, to_rho=to_rho, loss_r=loss_r):
+            rho = to_rho(l)
+            value, metrics = loss_r(as_params(rho))
+            return value, (metrics, rho)
+
+        vg = jax.value_and_grad(loss_fn, has_aux=True)
+
+        def record(i, value, metrics, rho):
+            m = {int(r): float(v) for r, v in metrics.items()}
+            log({"stage": name, "step": i, "loss": float(value),
+                 "eval_metric": m.get(1, min(m.values())),
+                 "eval_metric_by_resolution": m, "time": time.time() - t0})
+            if snapshot is not None:
+                snapshot(name, i, np.asarray(rho), float(value), m.get(1, min(m.values())))
+            if ste:  # the simulated design is feasible: a candidate
+                pool.add(feasible.binary(rho), m, name, i)
+
+        if st.get("optimizer", "lbfgsb") == "lbfgsb":
+            opt = invrs_opt.lbfgsb()
+            p = types.Density2DArray(array=latent, lower_bound=seed.lower_bound,
+                                     upper_bound=seed.upper_bound)
+            state = opt.init(p)
+            for i in range(int(st["steps"])):
+                p = opt.params(state)
+                (value, (metrics, rho)), grad = vg(p.array)
+                grad = dataclasses_replace(p, array=grad)
+                state = opt.update(grad=grad, value=value, params=p, state=state)
+                record(i, value, metrics, rho)
+            latent = opt.params(state).array
+        else:
+            tx = optax.adam(float(st.get("lr", 0.02)))
+            state = tx.init(latent)
+            for i in range(int(st["steps"])):
+                (value, (metrics, rho)), grad = vg(latent)
+                record(i, value, metrics, rho)
+                updates, state = tx.update(grad, state)
+                latent = jax.numpy.clip(optax.apply_updates(latent, updates),
+                                        seed.lower_bound, seed.upper_bound)
+
+        # End of stage: the repaired design of the current latent (r = 1 only)
+        binary = feasible.repair(np.asarray(feasible.projected(latent, beta)))
+        rho = jax.numpy.asarray(binary, float) * (seed.upper_bound - seed.lower_bound) + seed.lower_bound
+        _, metrics = multi_resolution_loss(challenges, {1: 1.0})(as_params(rho))
+        m = {int(r): float(v) for r, v in metrics.items()}
+        pool.add(binary, m, name, int(st["steps"]))
+        log({"stage": name, "repaired_eval_metric": m[1],
+             "length_scale": feasible.length_scale(binary), "time": time.time() - t0})
+
+    return pool.top(), latent, time.time() - t0
+
+
+def jnp_array(x):
+    return jax.numpy.asarray(np.asarray(x, dtype=float))
+
+
+def dataclasses_replace(obj, **kw):
+    import dataclasses
+
+    return dataclasses.replace(obj, **kw)

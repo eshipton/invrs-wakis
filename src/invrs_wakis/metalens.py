@@ -34,7 +34,7 @@ from wakis.field_monitors import _flat_index
 from wakis.inverse import AdjointSimulation, jax_simulation
 from wakis.sources import CurrentSource, GaussianSource
 
-from invrs_wakis._design import PixelDesign
+from invrs_wakis._design import PixelDesign, check_smoothing
 
 jax.config.update("jax_enable_x64", True)
 UM = 1e-6
@@ -72,6 +72,9 @@ class MetalensOptions:
         returned as NaN.
     store_dtype : numpy dtype
         Precision of the stored adjoint increments.
+    smoothing : {'none', 'tensor'}
+        Material smoothing of the design ('tensor': Wakis MaterialGrid
+        subpixel averaging, see `invrs_wakis._design.check_smoothing`).
     """
 
     resolution: int = 1
@@ -84,6 +87,7 @@ class MetalensOptions:
     match_time_dispersion: bool = True
     polarizations: Tuple[str, ...] = ("ex",)
     store_dtype: object = np.float32
+    smoothing: str = "none"
 
 
 class MetalensGeometry:
@@ -91,6 +95,7 @@ class MetalensGeometry:
                  options: MetalensOptions):
         if spec.width_pml != 0:
             raise NotImplementedError("Only the periodic (width_pml = 0) metalens is supported.")
+        check_smoothing(options.smoothing)
         self.spec, self.options = spec, options
         self.r = r = int(options.resolution)
         self.g = spec.grid_spacing * UM

@@ -53,7 +53,7 @@ from wakis.field_monitors import _flat_index
 from wakis.inverse import AdjointSimulation, jax_simulation, mode_amplitudes
 from wakis.sources import GaussianSource
 
-from invrs_wakis._design import PixelDesign
+from invrs_wakis._design import PixelDesign, check_smoothing
 from invrs_wakis._modes import PolarizedModeMonitor, PolarizedModeSource
 
 jax.config.update("jax_enable_x64", True)
@@ -94,6 +94,9 @@ class SimOptions:
         columns and the H column between them), evaluated on the Wakis DFT
         fields; resolution 1 only. It reproduces the official evaluator,
         including its reflection floor (about -31 dB at 40 nm pixels).
+    smoothing : {'none', 'tensor'}
+        Material smoothing of the design ('tensor': Wakis MaterialGrid
+        subpixel averaging, see `invrs_wakis._design.check_smoothing`).
     """
 
     resolution: int = 1
@@ -104,6 +107,7 @@ class SimOptions:
     pml_cells: Optional[int] = None
     store_dtype: Any = np.float32
     port_estimator: str = "modal"
+    smoothing: str = "none"
 
 
 class CevicheGeometry:
@@ -120,6 +124,7 @@ class CevicheGeometry:
         """
         if model.design_variable_shape != model.design_region_shape:
             raise NotImplementedError("Design variable transforms are not supported.")
+        check_smoothing(options.smoothing)
         self.model = model
         self.options = options
         self.r = r = int(options.resolution)

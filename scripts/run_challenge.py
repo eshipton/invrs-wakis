@@ -85,21 +85,24 @@ class Summary(dict):
             self.write()
 
 
-def build(name, args):
+def build(name, args, resolution=1):
+    """(Wakis challenge, gym challenge). Resolution 1 uses the --estimator
+    (default 'ceviche', which reproduces the official evaluator); finer
+    resolutions use the 'modal' estimator (the 'ceviche' one needs r = 1)."""
     if name == "metalens":
         from invrs_wakis.metalens import MetalensOptions, wakis_metalens_challenge
 
-        return wakis_metalens_challenge(MetalensOptions(resolution=args.metalens_resolution))
+        return wakis_metalens_challenge(MetalensOptions(
+            resolution=args.metalens_resolution * resolution, smoothing=args.smoothing))
     from invrs_wakis.ceviche import SimOptions, wakis_ceviche_challenge
 
-    return wakis_ceviche_challenge(
-        name, SimOptions(port_estimator=args.estimator, run_time=args.run_time)
-    )
+    estimator = args.estimator if resolution == 1 else "modal"
+    return wakis_ceviche_challenge(name, SimOptions(
+        resolution=resolution, port_estimator=estimator, run_time=args.run_time,
+        smoothing=args.smoothing))
 
 
 def ceviche_post(name, challenge, gym, best, summary):
-    from invrs_gym import challenges
-
     from invrs_wakis.ceviche import SimOptions, wakis_ceviche_challenge
     from invrs_wakis.fields import ceviche_fields
 
@@ -118,6 +121,9 @@ def ceviche_post(name, challenge, gym, best, summary):
     def length_scale():
         seed_density = gym.component.seed_density
         summary.update(
+            # As measured by the invrs leaderboard: the design array alone
+            length_scale_leaderboard_px=length_scale_pixels(np.asarray(best.array) > 0.5),
+            # With 4 pixels of the surrounding waveguides/cladding included
             length_scale_solid_void_px=ceviche_length_scale(gym.component.ceviche_model, best),
             target_min_width_spacing_px=[
                 int(seed_density.minimum_width),
@@ -143,10 +149,7 @@ def ceviche_post(name, challenge, gym, best, summary):
         summary.step(key, variant)
 
     def ceviche_10nm():
-        gym10 = challenges.BY_NAME[name](grid_spacing_nm=10)
-        p10 = gym10.component.init(jax.random.PRNGKey(0))
-        p10 = dataclasses.replace(p10, array=np.kron(np.asarray(best.array), np.ones((4, 4))))
-        r = evaluate(gym10, p10)
+        r = eval_10nm(name, best)
         summary["ceviche_10nm_eval_metric"] = r["eval_metric"]
         summary["ceviche_10nm_S2"] = s2(r["response"])
 
@@ -203,6 +206,115 @@ def run(name, seed, out, args):
     summary.write()
     summary.step("snapshots", lambda: snapshots.save(out / "snapshots.npz"))
 
+    post(name, challenge, gym, best, summary, out, args, t0)
+
+
+def load_config(path, name):
+    cfg = json.loads(pathlib.Path(path).read_text())
+    if name not in cfg:
+        raise KeyError(f"{name} not in {path}")
+    out = dict(cfg.get("defaults", {}))
+    out.update(cfg[name])
+    return out
+
+
+def apply_overrides(stages, args):
+    """--r2-weight W sets the weight of resolution 2 in every stage that
+    simulates more than r = 1 (0 removes it); --steps-scale scales steps."""
+    stages = [dict(st) for st in stages]
+    for st in stages:
+        w = {int(r): float(v) for r, v in st.get("weights", {"1": 1.0}).items()}
+        if args.r2_weight is not None and len(w) > 1:
+            w[2] = args.r2_weight
+        st["weights"] = {r: v for r, v in w.items() if v > 0}
+        st["steps"] = max(1, int(round(st["steps"] * args.steps_scale)))
+    return stages
+
+
+def initial_latent(cfg, params, seed):
+    from invrs_wakis.lengthscale import random_latent
+
+    init = cfg.get("init", "gym")
+    if init == "gym":  # the gym's initializer (0.5 + 10 % noise), seeded
+        return np.asarray(params.array)
+    if init == "random":  # smooth random start, conic blur of 2 filter radii
+        r = cfg.get("filter_radius") or 0.5 * (
+            params.minimum_width + params.minimum_spacing)
+        return random_latent(params, jax.random.PRNGKey(1000 + seed), 2.0 * r)
+    raise ValueError(f"unknown init {init!r}")
+
+
+def run_feasible(name, seed, out, args):
+    """Round-2 run: length-scale-feasible parameterization (config file)."""
+    from invrs_wakis.lengthscale import FeasibleDensity
+    from invrs_wakis.optimize import optimize_feasible
+
+    t0 = time.time()
+    cfg = load_config(args.config, name)
+    stages = apply_overrides(cfg["stages"], args)
+    summary = Summary(out / "summary.json", challenge=name, seed=seed, args=vars(args),
+                      method="feasible (conic filter + projection + length-scale repair, STE)",
+                      stages=stages)
+    resolutions = sorted({r for st in stages for r in st["weights"]} | {1})
+    built = {r: build(name, args, resolution=r) for r in resolutions}
+    challenges_by_r = {r: b[0] for r, b in built.items()}
+    gym = built[1][1]
+    params = gym.component.init(jax.random.PRNGKey(seed))
+    feasible = FeasibleDensity(params, filter_radius=cfg.get("filter_radius"))
+    summary.update(filter_radius_px=feasible.filter_radius,
+                   target_min_width_spacing_px=[feasible.min_width, feasible.min_spacing],
+                   resolutions=resolutions)
+    snapshots = SnapshotRecorder()
+    candidates, latent, opt_time = optimize_feasible(
+        challenges_by_r, feasible, initial_latent(cfg, params, seed), stages,
+        jsonl_logger(out / "log.jsonl"), snapshots,
+        n_candidates=int(args.candidates or cfg.get("n_candidates", 4)),
+    )
+    summary.update(optimization_time_s=opt_time)
+    np.save(out / "latent.npy", np.asarray(latent))
+    summary.step("snapshots", lambda: snapshots.save(out / "snapshots.npz"))
+
+    # Score the candidates with the official backend (+ 10 nm re-check)
+    def as_params(binary):
+        lo, hi = params.lower_bound, params.upper_bound
+        return dataclasses.replace(params, array=jax.numpy.asarray(np.where(binary, hi, lo), float))
+
+    scored = []
+    for k, c in enumerate(candidates):
+        rec = {key: c[key] for key in ("stage", "step", "wakis_metrics", "score")}
+        rec["length_scale_leaderboard_px"] = feasible.length_scale(c["design"])
+        p = as_params(c["design"])
+
+        def official(p=p, rec=rec):
+            rec["official_eval_metric"] = evaluate(gym, p)["eval_metric"]
+
+        summary.step(f"candidate{k}_official", official)
+        if name != "metalens":
+            def c10(p=p, rec=rec):
+                rec["ceviche_10nm_eval_metric"] = eval_10nm(name, p)["eval_metric"]
+
+            summary.step(f"candidate{k}_10nm", c10)
+        scored.append((rec.get("official_eval_metric", -np.inf), k, p, rec))
+        summary["candidates"] = [s[3] for s in scored]
+        summary.write()
+    _, kbest, best, rec = max(scored, key=lambda s: (s[0], -s[1]))
+    summary.update(selected_candidate=kbest, selected_stage=f"{rec['stage']}:{rec['step']}")
+    np.save(out / "design.npy", np.asarray(best.array))
+    (out / "params.json").write_text(json_utils.json_from_pytree(best))
+    summary.write()
+    post(name, built[1][0], gym, best, summary, out, args, t0)
+
+
+def eval_10nm(name, best):
+    from invrs_gym import challenges
+
+    gym10 = challenges.BY_NAME[name](grid_spacing_nm=10)
+    p10 = gym10.component.init(jax.random.PRNGKey(0))
+    p10 = dataclasses.replace(p10, array=np.kron(np.asarray(best.array), np.ones((4, 4))))
+    return evaluate(gym10, p10)
+
+
+def post(name, challenge, gym, best, summary, out, args, t0):
     if name == "metalens":
         fields_fn = metalens_post(challenge, gym, best, summary)
     else:
@@ -218,7 +330,8 @@ def run(name, seed, out, args):
         summary["rendered"] = summary.step("render", lambda: render_run(out, name))
     summary["total_time_s"] = time.time() - t0
     summary.write()
-    keys = ("official_eval_metric", "binarization_degree", "length_scale_solid_void_px",
+    keys = ("official_eval_metric", "ceviche_10nm_eval_metric", "binarization_degree",
+            "length_scale_leaderboard_px", "length_scale_solid_void_px",
             "optimization_time_s", "total_time_s", "rendered")
     print(json.dumps({k: summary.get(k) for k in keys}, default=str), flush=True)
     print(f"{len(summary['errors'])} post-processing errors", flush=True)
@@ -240,13 +353,28 @@ def main():
     ap.add_argument("--run-time", type=float, default=0.8e-12)
     ap.add_argument("--metalens-resolution", type=int, default=1)
     ap.add_argument("--no-render", action="store_true")
+    # Round 2
+    ap.add_argument("--config", default=None,
+                    help="JSON config (configs/round2.json): use the length-scale-feasible "
+                         "optimizer with the per-challenge stages")
+    ap.add_argument("--r2-weight", type=float, default=None,
+                    help="weight of the r=2 (20 nm) objective in multi-resolution stages "
+                         "(0 = optimize on the 40 nm grid only)")
+    ap.add_argument("--steps-scale", type=float, default=1.0)
+    ap.add_argument("--candidates", type=int, default=None)
+    ap.add_argument("--smoothing", default="none", choices=["none", "tensor"],
+                    help="material smoothing of the design in Wakis ('tensor' needs the "
+                         "Wakis tensor-averaging feature)")
     args = ap.parse_args()
 
     specs = [(c, s) for c in args.challenges for s in args.seeds]
     for name, seed in specs[args.shard :: args.nshards]:
         out = pathlib.Path(args.outdir) / f"{name}_seed{seed}"
         out.mkdir(parents=True, exist_ok=True)
-        run(name, seed, out, args)
+        if args.config:
+            run_feasible(name, seed, out, args)
+        else:
+            run(name, seed, out, args)
 
 
 if __name__ == "__main__":

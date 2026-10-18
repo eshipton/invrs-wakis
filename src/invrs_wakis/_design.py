@@ -75,3 +75,42 @@ class PixelDesign:
         eps = self.eps_pixels(rho)
         g = self.W.T @ np.asarray(grad_ieps, dtype=float)
         return (-(self.eps_max - self.eps_min) * g / (EPS0 * eps**2)).reshape(self.shape)
+
+
+SMOOTHING_MODES = ("none", "tensor")
+
+
+def check_smoothing(smoothing: str) -> None:
+    """
+    Validate the material-smoothing option of the bridges.
+
+    'none' (default): every Wakis E sample takes the permittivity of the gym
+    pixel(s) it lies in (`PixelDesign`). 'tensor': Meep-style anisotropic
+    subpixel averaging of the density (arithmetic mean for E parallel to an
+    interface, harmonic mean for E normal to it), to be provided by the Wakis
+    `MaterialGrid` (Wakis branch feature/tensor-averaging, not yet on
+    develop). Until the installed Wakis exposes it this raises
+    NotImplementedError, so a run cannot silently fall back to 'none'.
+
+    Note: in the ceviche (Ez) problem with an integer `resolution`, every Ez
+    sample lies inside a single gym pixel and E is parallel to all pixel
+    interfaces, so tensor averaging of a *binary pixel* design reproduces
+    the 'none' permittivities; it matters for gray densities sampled
+    off-centre, graded meshes and the metalens (in-plane E).
+    """
+    if smoothing not in SMOOTHING_MODES:
+        raise ValueError(f"smoothing must be one of {SMOOTHING_MODES}, got {smoothing!r}")
+    if smoothing == "tensor":
+        import inspect
+
+        from wakis.inverse import MaterialGrid
+
+        if "smoothing" not in inspect.signature(MaterialGrid.__init__).parameters:
+            raise NotImplementedError(
+                "smoothing='tensor' needs Wakis MaterialGrid(smoothing=...) "
+                "(feature/tensor-averaging); the installed Wakis does not provide it."
+            )
+        raise NotImplementedError(
+            "Wakis provides MaterialGrid smoothing; wire it into the invrs-wakis "
+            "design map (PixelDesign -> MaterialGrid) before using smoothing='tensor'."
+        )
