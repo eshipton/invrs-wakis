@@ -12,7 +12,7 @@ from scipy.constants import epsilon_0 as EPS0
 from wakis.inverse import AdjointSimulation
 
 from invrs_wakis._design import host
-from invrs_wakis.ceviche import CevicheSimulation
+from invrs_wakis.ceviche import CevicheSimulation, adjoint_memory_kwargs
 
 UM = 1e-6
 
@@ -54,6 +54,7 @@ def ceviche_fields(challenge, params, margin_nm=20.0, n_dense=61):
     sim = AdjointSimulation(
         g.make_solver, spectrum.sim.sources, {**spectrum.sim.monitors, "field": field},
         spectrum.design, spectrum.Nt, store_dtype=np.float32,
+        **adjoint_memory_kwargs(g.options),
     )  # fmt: skip
     sim.output_shapes()
     spectrum.sim = sim
@@ -115,7 +116,7 @@ def metalens_fields(challenge, params, above_um=0.4):
     )  # fmt: skip
     sim = AdjointSimulation(
         g.make_solver, msim.sim.sources, {"field": field}, msim.design, msim.Nt,
-        store_dtype=np.float32,
+        store_dtype=np.float32, **adjoint_memory_kwargs(g.options),
     )  # fmt: skip
     sim.forward(rho)
     mon = sim._monitors["field"]

@@ -11,7 +11,7 @@ license = "MIT"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     # Wakis develop (eshipton fork) at the commit this package was tested with
-    "wakis @ git+https://github.com/eshipton/Wakis.git@3e2fc62c3c7947ff870ab0765926b6fc5d2a0b2c",
+    "wakis @ git+https://github.com/eshipton/Wakis.git@787993ab033abffaaa981cda7f73390c61c3b50e",
     "invrs-gym>=1.6.2",
     "invrs-opt>=0.12",
     "imageruler>=0.3",

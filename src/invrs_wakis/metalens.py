@@ -35,6 +35,7 @@ from wakis.inverse import AdjointSimulation, jax_simulation
 from wakis.sources import CurrentSource, GaussianSource
 
 from invrs_wakis._design import PixelDesign, check_smoothing
+from invrs_wakis.ceviche import adjoint_memory_kwargs
 
 jax.config.update("jax_enable_x64", True)
 UM = 1e-6
@@ -80,6 +81,12 @@ class MetalensOptions:
     fused : bool
         GPU only: Wakis fused time step (CPML, sources, DFT monitors and the
         adjoint in a few kernels with CUDA graphs; `SolverFIT3D(fused=True)`).
+    adjoint_memory : {'store', 'checkpoint', 'reverse', 'auto'}
+        How the Wakis adjoint obtains the per-step design rows
+        (`AdjointSimulation(memory=...)`); 'auto' keeps them if they fit in
+        `adjoint_memory_budget_gb`, else checkpoints and replays.
+    adjoint_memory_budget_gb : float or None
+        Budget for 'auto'/'checkpoint' [GB] (None: the Wakis default).
     """
 
     resolution: int = 1
@@ -95,6 +102,8 @@ class MetalensOptions:
     smoothing: str = "none"
     use_gpu: bool = False
     fused: bool = False
+    adjoint_memory: str = "store"
+    adjoint_memory_budget_gb: Optional[float] = None
 
 
 class MetalensGeometry:
@@ -270,6 +279,7 @@ class MetalensSimulation:
         self.sim = AdjointSimulation(
             g.make_solver, [source], {"focus": monitor}, self.design, self.Nt,
             store_dtype=g.options.store_dtype,
+            **adjoint_memory_kwargs(g.options),
         )
         self.simulate = jax_simulation(self.sim)
         # Reference: substrate up to the top of density row 1 (the gym's

@@ -33,7 +33,7 @@ def main():
     for rt in a.run_times:
         ch, gym = wakis_ceviche_challenge(a.name, SimOptions(
             port_estimator="ceviche", run_time=rt * 1e-12, use_gpu=not a.cpu,
-            fused=not a.cpu))
+            fused=not a.cpu, adjoint_memory="reverse"))
         p = dataclasses.replace(gym.component.init(jax.random.PRNGKey(0)),
                                 array=jax.numpy.asarray(design))
         t = time.time()

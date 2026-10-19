@@ -102,6 +102,12 @@ class SimOptions:
     fused : bool
         GPU only: Wakis fused time step (CPML, sources, DFT monitors and the
         adjoint in a few kernels with CUDA graphs; `SolverFIT3D(fused=True)`).
+    adjoint_memory : {'store', 'checkpoint', 'reverse', 'auto'}
+        How the Wakis adjoint obtains the per-step design rows
+        (`AdjointSimulation(memory=...)`); 'auto' keeps them if they fit in
+        `adjoint_memory_budget_gb`, else checkpoints and replays.
+    adjoint_memory_budget_gb : float or None
+        Budget for 'auto'/'checkpoint' [GB] (None: the Wakis default).
     """
 
     resolution: int = 1
@@ -115,6 +121,19 @@ class SimOptions:
     smoothing: str = "none"
     use_gpu: bool = False
     fused: bool = False
+    adjoint_memory: str = "store"
+    adjoint_memory_budget_gb: Optional[float] = None
+
+
+def adjoint_memory_kwargs(options):
+    """AdjointSimulation memory arguments of the options (none for 'store',
+    so older Wakis versions keep working)."""
+    if options.adjoint_memory == "store":
+        return {}
+    kw = {"memory": options.adjoint_memory}
+    if options.adjoint_memory_budget_gb is not None:
+        kw["memory_budget_gb"] = options.adjoint_memory_budget_gb
+    return kw
 
 
 class CevicheGeometry:
@@ -315,6 +334,7 @@ class CevicheSimulation:
             self.design,
             self.Nt,
             store_dtype=g.options.store_dtype,
+            **adjoint_memory_kwargs(g.options),
         )
         self.simulate = jax_simulation(self.sim)
 

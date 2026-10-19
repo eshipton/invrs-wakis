@@ -44,6 +44,16 @@ def simulation_estimate(name, challenge) -> Estimate:
         # estimated without the tensor operator (profile_iteration.py)
         est.host_bytes *= TENSOR_MEMORY_FACTOR
         est.gpu_bytes *= TENSOR_MEMORY_FACTOR
+    mem = getattr(comp.options, "adjoint_memory", "store")
+    if mem != "store":
+        # checkpoint/reverse/auto: the rows are replaced by a bounded set of
+        # snapshots (budget, default 25 % of host RAM, or CPML layers only)
+        stored = est.breakdown.get("adjoint stored increments", 0.0) * 1.25
+        budget = getattr(comp.options, "adjoint_memory_budget_gb", None)
+        keep = min(stored, (budget or 8.0) * 1e9) if mem in ("auto", "checkpoint") else 0.0
+        est.host_bytes -= stored - keep
+        est.gpu_bytes = max(0.0, est.gpu_bytes - (stored - keep))
+        est.breakdown["adjoint stored increments"] = keep / 1.25
     if backend == "gpu":
         # Stored adjoint increments stay on the GPU only if they fit in half
         # of the free memory (AdjointSimulation store_on_host=None); otherwise
