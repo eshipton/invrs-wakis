@@ -63,6 +63,10 @@ def main():
     ap.add_argument("--nshards", type=int, default=1)
     ap.add_argument("--outdir", default="out")
     a = ap.parse_args()
+    # Import once before the workers: refractiveindex2 (via invrs_gym)
+    # extracts its database on first import, which races between processes
+    import invrs_gym.challenges  # noqa: F401
+
     ctx = multiprocessing.get_context("spawn")
     with concurrent.futures.ProcessPoolExecutor(len(JOBS), mp_context=ctx) as pool:
         res = list(pool.map(score, *zip(*JOBS)))
