@@ -315,7 +315,8 @@ def run_feasible(name, seed, out, args):
                    target_min_width_spacing_px=[feasible.min_width, feasible.min_spacing],
                    resolutions=resolutions)
     snapshots = SnapshotRecorder()
-    ckpt = Checkpointer(out / "checkpoint.pkl", gcs_checkpoint_uri(out), recorder=snapshots)
+    ckpt = Checkpointer(out / "checkpoint.pkl", gcs_checkpoint_uri(out, args.checkpoint_run),
+                        recorder=snapshots)
     resuming = ckpt.gcs_uri is not None or (out / "checkpoint.pkl").exists()
     candidates, latent, opt_time = optimize_feasible(
         challenges_by_r, feasible, initial_latent(cfg, params, seed), stages,
@@ -363,10 +364,13 @@ def run_feasible(name, seed, out, args):
     post(name, built[1][0], gym, best, summary, out, args, t0)
 
 
-def gcs_checkpoint_uri(out):
+def gcs_checkpoint_uri(out, checkpoint_run=None):
     """gs:// URI of the run's checkpoint when running as a Cloud Batch task
-    of bin/sweep.sh (BUCKET, RUN_ID in the environment), else None."""
-    bucket, run_id = os.environ.get("BUCKET"), os.environ.get("RUN_ID")
+    of bin/sweep.sh (BUCKET, RUN_ID in the environment), else None.
+    `checkpoint_run` (--checkpoint-run) reads/writes the checkpoints of
+    another sweep instead (resume a cancelled sweep in a new job)."""
+    bucket = os.environ.get("BUCKET")
+    run_id = checkpoint_run or os.environ.get("RUN_ID")
     if not (bucket and run_id):
         return None
     return f"gs://{bucket}/sweeps/{run_id}/checkpoints/{out.name}/checkpoint.pkl"
@@ -443,6 +447,8 @@ def main():
                          "does not fit")
     ap.add_argument("--gpu", action="store_true",
                     help="run the Wakis solver on the GPU (CuPy; install the 'gpu' extra)")
+    ap.add_argument("--checkpoint-run", default=None,
+                    help="sweep RUN_ID whose GCS checkpoints to resume from and update")
     ap.add_argument("--ignore-gpu-cap", action="store_true",
                     help="do not cap --jobs-per-task by the estimated GPU memory "
                          "(measured use can be below the conservative estimate)")

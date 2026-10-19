@@ -305,27 +305,27 @@
   ]
  },
  "ceviche_wdm": {
-  "_doc": "full challenge: 10 nm grid, 6 wavelengths, 8 px targets; the Wakis r=1 grid is the official 10 nm grid (36 cells/lambda in Si), so no finer robustness term (r=2 = 5 nm would cost 8x) and tensor smoothing is a no-op at r=1",
+  "_doc": "full challenge: 10 nm grid, 6 wavelengths, 8 px targets; the Wakis r=1 grid is the official 10 nm grid (36 cells/lambda in Si), so no finer robustness term (r=2 = 5 nm would cost 8x) and tensor smoothing is a no-op at r=1; fewer steps (85): ~1000 s per iteration (host-bound per-step overhead)",
   "stages": [
    {
     "beta": 4,
-    "steps": 30
-   },
-   {
-    "beta": 8,
-    "steps": 30
-   },
-   {
-    "beta": 16,
-    "steps": 25
-   },
-   {
-    "beta": 32,
     "steps": 20
    },
    {
+    "beta": 8,
+    "steps": 20
+   },
+   {
+    "beta": 16,
+    "steps": 15
+   },
+   {
+    "beta": 32,
+    "steps": 10
+   },
+   {
     "beta": 64,
-    "steps": 40,
+    "steps": 20,
     "ste": true,
     "optimizer": "adam",
     "lr": 0.02

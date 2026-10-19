@@ -29,13 +29,21 @@ gcloud storage cp "gs://$BUCKET/sweeps/$RUN_ID/task.sh" "$TMP/task.sh" --quiet
 sed -i.bak 's/uv sync --quiet/uv sync --quiet --extra gpu/' "$TMP/task.sh"
 grep -q -- "--extra gpu" "$TMP/task.sh" || { echo "task.sh patch failed" >&2; exit 1; }
 gcloud storage cp "$TMP/task.sh" "gs://$BUCKET/sweeps/$RUN_ID/task.sh" --quiet
-python3 - "$JSON" <<'PY'
+python3 - "$JSON" "$MACHINE" <<'PY'
 import json, sys
 j = json.load(open(sys.argv[1]))
 inst = j["allocationPolicy"]["instances"][0]
 inst["installGpuDrivers"] = True
 inst["policy"]["accelerators"] = [{"type": "nvidia-l4", "count": 1}]
 inst["policy"]["bootDisk"]["sizeGb"] = 100
+# One task per VM: Batch otherwise packs several tasks onto one VM (and its
+# single GPU) when no compute resources are requested
+vcpus = int(sys.argv[2].rsplit("-", 1)[1])
+ram_mib = {"g2-standard-8": 32768, "g2-standard-12": 49152, "g2-standard-16": 65536,
+           "g2-standard-24": 98304, "g2-standard-32": 131072}[sys.argv[2]]
+ts = j["taskGroups"][0]["taskSpec"]
+ts["computeResource"] = {"cpuMilli": int(vcpus * 1000 * 0.75), "memoryMib": int(ram_mib * 0.75)}
+ts["maxRetryCount"] = 6  # spot preemptions; runs resume from their GCS checkpoint
 j["labels"]["gpu"] = "l4"
 json.dump(j, open(sys.argv[1], "w"), indent=1)
 PY
