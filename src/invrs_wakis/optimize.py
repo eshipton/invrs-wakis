@@ -249,15 +249,24 @@ def optimize_feasible(
         name = st.get("name") or f"{'ste' if ste else 'density'}_beta{beta:g}"
         loss_r = multi_resolution_loss(challenges, weights)
         if robust:
-            def loss_fn(l, beta=beta, robust=robust, loss_r=loss_r):
-                rho_e = feasible.projected(l, beta, eta=0.5 + robust)
+            # max over (eroded, nominal, dilated). The gradient of the max is
+            # that of the worst design, so the three losses are first
+            # evaluated forward-only and only the worst one is differentiated
+            # (4 forward + 1 adjoint runs instead of 3 + 3).
+            etas = (0.5 + robust, 0.5, 0.5 - robust)
+
+            def robust_vg(l, beta=beta, etas=etas, loss_r=loss_r):
+                outs = [loss_r(as_params(feasible.projected(l, beta, eta=e))) for e in etas]
+                losses = np.array([float(o[0]) for o in outs])
+                worst = int(np.argmax(losses))
+
+                def f(x):
+                    v, m = loss_r(as_params(feasible.projected(x, beta, eta=etas[worst])))
+                    return v
+
+                value, grad = jax.value_and_grad(f)(l)
                 rho = feasible.projected(l, beta, eta=0.5)
-                rho_d = feasible.projected(l, beta, eta=0.5 - robust)
-                le, _ = loss_r(as_params(rho_e))
-                ln, metrics = loss_r(as_params(rho))
-                ld, _ = loss_r(as_params(rho_d))
-                losses = jax.numpy.stack([le, ln, ld])
-                return jax.numpy.max(losses), (metrics, rho, losses)
+                return (value, (outs[1][1], rho, losses)), grad
         else:
             to_rho = (lambda l: feasible.ste_density(l, beta)) if ste else (
                 lambda l: feasible.projected(l, beta))
@@ -267,7 +276,7 @@ def optimize_feasible(
                 value, metrics = loss_r(as_params(rho))
                 return value, (metrics, rho, None)
 
-        vg = jax.value_and_grad(loss_fn, has_aux=True)
+        vg = robust_vg if robust else jax.value_and_grad(loss_fn, has_aux=True)
 
         def record(i, value, metrics, rho, robust_losses=None):
             m = {int(r): float(v) for r, v in metrics.items()}
