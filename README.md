@@ -262,8 +262,9 @@ Compared with round 1, which mostly violated the length scale:
 - Power splitter: +0.067 at 1/2 px → +0.052 at 4/4 px.
 
 Tensor smoothing against the same seeds without it: the official metric is
-higher in 3 of 4 changed runs. The 10 nm metric is higher in all 4. One
-power-splitter seed selected the same design in both arms. There are two
+higher in 4 of the 5 runs that changed (bend seed 0: +0.407 vs +0.436). The
+10 nm metric is higher in all 5. Power splitter seed 0 selected the same
+design in both arms. There are two
 seeds per arm, so these are indications, not significant results.
 
 ## License
