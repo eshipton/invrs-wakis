@@ -218,7 +218,53 @@ included, which differs from the leaderboard's measurement.
 
 ## Results
 
-To be filled in from the cloud sweep.
+### Round-2 pilot (lightweight ceviche, 40 nm grid; Cloud Batch)
+
+![round-2 pilot gallery](docs/round2_pilot_gallery.png)
+
+Best design per challenge, scored with the official gym backend (ceviche
+FDFD). Every design meets the gym's 3/3 px minimum width/spacing as the
+leaderboard measures it (imageruler on the design array). "10 nm" is the
+same design evaluated with ceviche on the 10 nm grid.
+
+| challenge | arm | seed | official (40 nm) | ceviche 10 nm | length scale solid/void px (target 3/3) | opt. time h |
+|---|---|---|---|---|---|---|
+| mode_converter | 40 nm only (r1) | 2 | +0.219 | -0.045 | 3/3 | 1.2 |
+| mode_converter | 40 nm only (r1) | 3 | -0.330 | -0.345 | 3/3 | 1.3 |
+| mode_converter | robust + tensor | 0 | +0.202 | +0.259 | 3/3 | 7.4 |
+| mode_converter | robust + tensor | 1 | +0.381 | +0.315 | 3/3 | 7.4 |
+| mode_converter | robust r1+r2 | 0 | +0.126 | +0.238 | 3/3 | 4.6 |
+| mode_converter | robust r1+r2 | 1 | +0.287 | +0.268 | 3/3 | 4.6 |
+| power_splitter | 40 nm only (r1) | 2 | +0.015 | +0.015 | 3/4 | 0.8 |
+| power_splitter | 40 nm only (r1) | 3 | +0.039 | +0.040 | 4/6 | 0.8 |
+| power_splitter | robust + tensor | 0 | +0.038 | -0.423 | 4/3 | 3.4 |
+| power_splitter | robust + tensor | 1 | +0.052 | +0.045 | 4/4 | 5.0 |
+| power_splitter | robust r1+r2 | 0 | +0.038 | -0.423 | 4/3 | 3.0 |
+| power_splitter | robust r1+r2 | 1 | +0.050 | +0.042 | 4/4 | 3.0 |
+| waveguide_bend | 40 nm only (r1) | 2 | +0.319 | +0.006 | 3/3 | 0.7 |
+| waveguide_bend | 40 nm only (r1) | 3 | +0.596 | +0.158 | 3/3 | 0.8 |
+| waveguide_bend | robust + tensor | 0 | +0.407 | +0.359 | 3/3 | 5.0 |
+| waveguide_bend | robust + tensor | 1 | +0.675 | +0.462 | 3/3 | 3.4 |
+| waveguide_bend | robust r1+r2 | 0 | +0.436 | +0.307 | 3/3 | 2.9 |
+| waveguide_bend | robust r1+r2 | 1 | +0.583 | +0.193 | 3/3 | 3.0 |
+
+Arms:
+- **40 nm only:** `--r2-weight 0`, seeds 2–3.
+- **robust r1+r2:** the STE stage averages the loss over the 40 nm and 20 nm
+  Wakis grids, seeds 0–1.
+- **robust + tensor:** as robust, with `--smoothing tensor` on the 20 nm grid,
+  seeds 0–1, so it pairs with the robust arm seed by seed. Bend seed 1 and
+  power splitter seed 0 of this arm were re-run with the parallel driver.
+
+Compared with round 1, which mostly violated the length scale:
+- Bend: +0.52 at 1–2 px → +0.675 at 3/3 px. On the 10 nm grid: +0.315 → +0.462.
+- Mode converter: −0.31 → +0.381 (10 nm: +0.315).
+- Power splitter: +0.067 at 1/2 px → +0.052 at 4/4 px.
+
+Tensor smoothing against the same seeds without it: the official metric is
+higher in 3 of 4 changed runs. The 10 nm metric is higher in all 4. One
+power-splitter seed selected the same design in both arms. There are two
+seeds per arm, so these are indications, not significant results.
 
 ## License
 
