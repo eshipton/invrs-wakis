@@ -443,6 +443,9 @@ def main():
                          "does not fit")
     ap.add_argument("--gpu", action="store_true",
                     help="run the Wakis solver on the GPU (CuPy; install the 'gpu' extra)")
+    ap.add_argument("--ignore-gpu-cap", action="store_true",
+                    help="do not cap --jobs-per-task by the estimated GPU memory "
+                         "(measured use can be below the conservative estimate)")
     ap.add_argument("--preflight-only", action="store_true",
                     help="only log the memory estimate (no simulation)")
     ap.add_argument("--arms", nargs="+", default=None, choices=sorted(ARMS),
@@ -545,7 +548,7 @@ def memory_cap(specs, args):
             worst = max(worst, info["total_host_GB"] * 1e9)
             worst_gpu = max(worst_gpu, info["total_gpu_GB"] * 1e9)
     cap = max(1, int(0.85 * machine_ram(args) // worst))
-    if args.gpu and worst_gpu > 0:  # all jobs of a task share its GPU
+    if args.gpu and worst_gpu > 0 and not args.ignore_gpu_cap:  # jobs share the GPU
         cap = min(cap, max(1, int(0.9 * machine_gpu(args) // worst_gpu)))
         print(f"[driver] GPU preflight: worst spec {worst_gpu / 1e9:.1f} GB", flush=True)
     print(f"[driver] preflight: worst spec {worst / 1e9:.1f} GB -> at most {cap} concurrent "
