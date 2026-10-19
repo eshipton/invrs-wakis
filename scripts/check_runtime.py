@@ -26,6 +26,8 @@ def main():
     ap.add_argument("--design", default="tests/data/full_wdm_smoke.npz")
     ap.add_argument("--run-times", type=float, nargs="+", default=[0.4, 0.8, 1.2, 1.6])
     ap.add_argument("--cpu", action="store_true")
+    ap.add_argument("--adjoint-memory", default="auto")
+    ap.add_argument("--budget", type=float, default=6.0, help="memory_budget_gb")
     a = ap.parse_args()
     design = np.load(a.design)["design"].astype(float)
     res = []
@@ -33,7 +35,8 @@ def main():
     for rt in a.run_times:
         ch, gym = wakis_ceviche_challenge(a.name, SimOptions(
             port_estimator="ceviche", run_time=rt * 1e-12, use_gpu=not a.cpu,
-            fused=not a.cpu, adjoint_memory="reverse"))
+            fused=not a.cpu, adjoint_memory=a.adjoint_memory,
+            adjoint_memory_budget_gb=a.budget))
         p = dataclasses.replace(gym.component.init(jax.random.PRNGKey(0)),
                                 array=jax.numpy.asarray(design))
         t = time.time()
