@@ -357,6 +357,13 @@ def run_feasible(name, seed, out, args):
         checkpoint=ckpt,
     )
     summary.update(optimization_time_s=opt_time)
+    # Free the optimization simulations (stored adjoint increments: 34 GB for
+    # the full wdm) before the post-processing simulations are built
+    for ch_r in challenges_by_r.values():
+        getattr(ch_r.component, "_sims", {}).clear()
+    import gc
+
+    gc.collect()
     if args.smoothing == "tensor":
         from invrs_wakis._design import TENSOR_CLAMPED
 

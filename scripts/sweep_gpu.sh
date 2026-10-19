@@ -6,19 +6,19 @@
 # Builds the job with `DRY_RUN=1 sweep.sh submit` (same task script, repo commit and
 # upload of /work/out), then patches it: the task installs the 'gpu' extra
 # (uv sync --extra gpu), and the VM gets one NVIDIA L4 (installGpuDrivers) on a
-# g2-standard-* machine. The script run is scripts/run_challenge.py.
+# g2-standard-* machine. The script run is scripts/run_challenge.py (or --script).
 set -euo pipefail
 KIT=~/QBoltz-Code/autoresearch-cloud
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 N="${1:?nshards}"; MACHINE="${2:?machine (g2-standard-8/16/32)}"; shift 2
-MIN=240; TAG=gpu; SPOT=1; PASS=()
+MIN=240; TAG=gpu; SPOT=1; PASS=(); SCRIPT=scripts/run_challenge.py
 while [ $# -gt 0 ]; do
   case "$1" in
-    --minutes) MIN="$2"; shift 2;; --tag) TAG="$2"; shift 2;; --standard) SPOT=0; shift;;
+    --minutes) MIN="$2"; shift 2;; --script) SCRIPT="$2"; shift 2;; --tag) TAG="$2"; shift 2;; --standard) SPOT=0; shift;;
     --) shift; PASS=("$@"); break;; *) echo "unknown option $1" >&2; exit 1;;
   esac
 done
-out=$(DRY_RUN=1 "$KIT/bin/sweep.sh" submit "$REPO" scripts/run_challenge.py "$N" --machine "$MACHINE" \
+out=$(DRY_RUN=1 "$KIT/bin/sweep.sh" submit "$REPO" "$SCRIPT" "$N" --machine "$MACHINE" \
       --minutes "$MIN" --tag "$TAG" $([ $SPOT = 0 ] && echo --standard) -- "${PASS[@]}" 2>&1)
 echo "$out" | tail -2
 JSON=$(echo "$out" | sed -n 's/.*job.json at \(.*\), nothing submitted.*/\1/p')
