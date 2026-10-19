@@ -5,6 +5,32 @@
   "filter_radius": null,
   "n_candidates": 4
  },
+ "schedule_v2": {
+  "_doc": "v2 schedule for the full ceviche challenges and the metalens: eroded/nominal/dilated robust projection (delta = 0.15) at beta = 8, 16, then 60-step STE Adam at beta = 16 (lr = 0.005)",
+  "stages": [
+   {
+    "beta": 4,
+    "steps": 25
+   },
+   {
+    "beta": 8,
+    "steps": 25,
+    "robust": 0.15
+   },
+   {
+    "beta": 16,
+    "steps": 25,
+    "robust": 0.15
+   },
+   {
+    "beta": 16,
+    "steps": 60,
+    "ste": true,
+    "optimizer": "adam",
+    "lr": 0.005
+   }
+  ]
+ },
  "ceviche_lightweight_waveguide_bend": {
   "stages": [
    {

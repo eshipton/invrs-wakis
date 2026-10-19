@@ -193,8 +193,10 @@ def optimize_feasible(
     stages : list of dict
         Each with keys 'beta', 'steps', and optionally 'optimizer'
         ('lbfgsb' | 'adam'), 'lr' (Adam), 'ste' (bool: simulate the
-        repaired binary design, straight-through gradient), 'weights'
-        ({resolution: weight}, default {1: 1}), 'name'.
+        repaired binary design, straight-through gradient), 'robust'
+        (float: threshold shift delta for eroded/nominal/dilated worst-case
+        loss, non-STE stages only), 'weights' ({resolution: weight},
+        default {1: 1}), 'name'.
     n_candidates : int
         Number of best feasible designs returned.
     checkpoint : Checkpointer, optional
@@ -235,29 +237,46 @@ def optimize_feasible(
         return dataclasses_replace(seed, array=rho)
 
     for k, st in enumerate(stages):
+        ste = bool(st.get("ste", False))
+        robust = float(st.get("robust", 0.0))
+        if ste and robust:
+            raise ValueError("robust projection cannot be combined with ste")
         if k < k0:
             continue
         start = i0 if k == k0 else 0
         beta = float(st["beta"])
-        ste = bool(st.get("ste", False))
         weights = {int(r): float(w) for r, w in st.get("weights", {1: 1.0}).items()}
         name = st.get("name") or f"{'ste' if ste else 'density'}_beta{beta:g}"
         loss_r = multi_resolution_loss(challenges, weights)
-        to_rho = (lambda l: feasible.ste_density(l, beta)) if ste else (
-            lambda l: feasible.projected(l, beta))
+        if robust:
+            def loss_fn(l, beta=beta, robust=robust, loss_r=loss_r):
+                rho_e = feasible.projected(l, beta, eta=0.5 + robust)
+                rho = feasible.projected(l, beta, eta=0.5)
+                rho_d = feasible.projected(l, beta, eta=0.5 - robust)
+                le, _ = loss_r(as_params(rho_e))
+                ln, metrics = loss_r(as_params(rho))
+                ld, _ = loss_r(as_params(rho_d))
+                losses = jax.numpy.stack([le, ln, ld])
+                return jax.numpy.max(losses), (metrics, rho, losses)
+        else:
+            to_rho = (lambda l: feasible.ste_density(l, beta)) if ste else (
+                lambda l: feasible.projected(l, beta))
 
-        def loss_fn(l, to_rho=to_rho, loss_r=loss_r):
-            rho = to_rho(l)
-            value, metrics = loss_r(as_params(rho))
-            return value, (metrics, rho)
+            def loss_fn(l, to_rho=to_rho, loss_r=loss_r):
+                rho = to_rho(l)
+                value, metrics = loss_r(as_params(rho))
+                return value, (metrics, rho, None)
 
         vg = jax.value_and_grad(loss_fn, has_aux=True)
 
-        def record(i, value, metrics, rho):
+        def record(i, value, metrics, rho, robust_losses=None):
             m = {int(r): float(v) for r, v in metrics.items()}
-            log({"stage": name, "step": i, "loss": float(value),
-                 "eval_metric": m.get(1, min(m.values())),
-                 "eval_metric_by_resolution": m, "time": time.time() - t0})
+            rec = {"stage": name, "step": i, "loss": float(value),
+                   "eval_metric": m.get(1, min(m.values())),
+                   "eval_metric_by_resolution": m, "time": time.time() - t0}
+            if robust_losses is not None:
+                rec["robust_losses"] = [float(x) for x in robust_losses]
+            log(rec)
             if snapshot is not None:
                 snapshot(name, i, np.asarray(rho), float(value), m.get(1, min(m.values())))
             if ste:  # the simulated design is feasible: a candidate
@@ -270,18 +289,18 @@ def optimize_feasible(
             state = opt.init(p)
             for i in range(start, int(st["steps"])):
                 p = opt.params(state)
-                (value, (metrics, rho)), grad = vg(p.array)
+                (value, (metrics, rho, rlosses)), grad = vg(p.array)
                 grad = dataclasses_replace(p, array=grad)
                 state = opt.update(grad=grad, value=value, params=p, state=state)
-                record(i, value, metrics, rho)
+                record(i, value, metrics, rho, rlosses)
                 save(k, i + 1, opt.params(state).array)
             latent = opt.params(state).array
         else:
             tx = optax.adam(float(st.get("lr", 0.02)))
             state = tx.init(latent)
             for i in range(start, int(st["steps"])):
-                (value, (metrics, rho)), grad = vg(latent)
-                record(i, value, metrics, rho)
+                (value, (metrics, rho, rlosses)), grad = vg(latent)
+                record(i, value, metrics, rho, rlosses)
                 updates, state = tx.update(grad, state)
                 latent = jax.numpy.clip(optax.apply_updates(latent, updates),
                                         seed.lower_bound, seed.upper_bound)

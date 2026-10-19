@@ -109,9 +109,9 @@ class FeasibleDensity:
         y = jax.lax.conv_general_dilated(x[None, None], k, (1, 1), "VALID")[0, 0]
         return y
 
-    def projected(self, latent, beta):
+    def projected(self, latent, beta, eta: float = 0.5):
         """Filtered, projected density (gym bounds) with fixed pixels set."""
-        y = tanh_projection(self.filtered(latent), beta)
+        y = tanh_projection(self.filtered(latent), beta, eta=eta)
         y = jnp.where(self.fixed_solid, 1.0, jnp.where(self.fixed_void, 0.0, y))
         return self._from_unit(y)
 

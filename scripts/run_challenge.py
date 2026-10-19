@@ -265,16 +265,46 @@ def load_config(path, name):
     return out
 
 
-def apply_overrides(stages, args):
-    """--r2-weight W sets the weight of resolution 2 in every stage that
-    simulates more than r = 1 (0 removes it); --steps-scale scales steps."""
+def replace_schedule(stages, schedule_stages):
+    """Replace `stages` with `schedule_stages`, keeping multi-resolution STE
+    `weights` from `stages` when present."""
+    if isinstance(schedule_stages, dict):
+        schedule_stages = schedule_stages["stages"]
+    ste_weights = next(
+        (dict(st["weights"]) for st in stages
+         if st.get("ste") and len(st.get("weights", {})) > 1),
+        None,
+    )
+    out = [dict(st) for st in schedule_stages]
+    if ste_weights is not None:
+        for st in out:
+            if st.get("ste"):
+                st["weights"] = dict(ste_weights)
+    return out
+
+
+def apply_overrides(stages, args=None, *, schedule=None, config="configs/round2.json",
+                    r2_weight=None, steps_scale=1.0):
+    """--schedule replaces stages with schedule_<name> from --config (keeping
+    multi-resolution STE weights); --r2-weight W sets the weight of resolution 2
+    in every stage that simulates more than r = 1 (0 removes it); --steps-scale
+    scales steps."""
+    if args is not None:
+        schedule = getattr(args, "schedule", schedule)
+        config = getattr(args, "config", None) or config
+        r2_weight = getattr(args, "r2_weight", r2_weight)
+        steps_scale = getattr(args, "steps_scale", steps_scale)
+    if schedule is not None:
+        raw = json.loads(pathlib.Path(config).read_text())
+        sched = raw[f"schedule_{schedule}" if f"schedule_{schedule}" in raw else schedule]
+        stages = replace_schedule(stages, sched)
     stages = [dict(st) for st in stages]
     for st in stages:
         w = {int(r): float(v) for r, v in st.get("weights", {"1": 1.0}).items()}
-        if args.r2_weight is not None and len(w) > 1:
-            w[2] = args.r2_weight
+        if r2_weight is not None and len(w) > 1:
+            w[2] = r2_weight
         st["weights"] = {r: v for r, v in w.items() if v > 0}
-        st["steps"] = max(1, int(round(st["steps"] * args.steps_scale)))
+        st["steps"] = max(1, int(round(st["steps"] * steps_scale)))
     return stages
 
 
@@ -302,6 +332,8 @@ def run_feasible(name, seed, out, args):
     summary = Summary(out / "summary.json", challenge=name, seed=seed, args=vars(args),
                       method="feasible (conic filter + projection + length-scale repair, STE)",
                       stages=stages)
+    if getattr(args, "schedule", None):
+        summary["schedule"] = args.schedule
     resolutions = sorted({r for st in stages for r in st["weights"]} | {1})
     built = {r: build(name, args, resolution=r) for r in resolutions}
     challenges_by_r = {r: b[0] for r, b in built.items()}
@@ -430,6 +462,9 @@ def main():
     ap.add_argument("--config", default=None,
                     help="JSON config (configs/round2.json): use the length-scale-feasible "
                          "optimizer with the per-challenge stages")
+    ap.add_argument("--schedule", default=None, choices=["v2"],
+                    help="replace challenge stages with schedule_<name> from --config "
+                         "(preserving multi-resolution STE weights)")
     ap.add_argument("--r2-weight", type=float, default=None,
                     help="weight of the r=2 (20 nm) objective in multi-resolution stages "
                          "(0 = optimize on the 40 nm grid only)")
