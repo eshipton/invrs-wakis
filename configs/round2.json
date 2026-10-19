@@ -161,7 +161,7 @@
   ]
  },
  "metalens": {
-  "_doc": "untested in round 2; resolution r multiplies the 20 nm metalens bridge resolution",
+  "_doc": "GPU (L4): beta stages on the 20 nm uniform grid (~26 s/gradient), STE stage with the 10 nm (r=2) robustness term (~210 s/gradient); length-scale target = the gym's seed density minimum width/spacing",
   "stages": [
    {
     "beta": 4,
@@ -173,7 +173,7 @@
    },
    {
     "beta": 16,
-    "steps": 30
+    "steps": 25
    },
    {
     "beta": 32,
@@ -181,12 +181,13 @@
    },
    {
     "beta": 64,
-    "steps": 30,
+    "steps": 40,
     "ste": true,
     "optimizer": "adam",
     "lr": 0.02,
     "weights": {
-     "1": 1.0
+     "1": 1.0,
+     "2": 1.0
     }
    }
   ]

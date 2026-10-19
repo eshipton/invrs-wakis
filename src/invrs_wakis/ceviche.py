@@ -53,7 +53,7 @@ from wakis.field_monitors import _flat_index
 from wakis.inverse import AdjointSimulation, jax_simulation, mode_amplitudes
 from wakis.sources import GaussianSource
 
-from invrs_wakis._design import PaddedMaterialGrid, PixelDesign, check_smoothing
+from invrs_wakis._design import PaddedMaterialGrid, PixelDesign, check_smoothing, host
 from invrs_wakis._modes import PolarizedModeMonitor, PolarizedModeSource
 
 jax.config.update("jax_enable_x64", True)
@@ -188,11 +188,13 @@ class CevicheGeometry:
             # Stability bound of the tensor step relative to the 2D limit (the
             # single periodic z cell adds no z derivative)
             solver.conformal_dt_max = self.dt_2d
-        eps = solver.E.xp.asarray(self._eps_bg_nodes)
+        eps = self._eps_bg_nodes
         for comp in "xyz":
             # Scaling keeps the zero ieps of PEC walls and ghost samples; with
-            # CPML the time step reads ieps directly (no operator to rebuild)
-            solver.ieps[:, :, 0, comp] = solver.ieps[:, :, 0, comp] / eps
+            # CPML the time step reads ieps directly (no operator to rebuild).
+            # On the host: Field.__getitem__ may return a NumPy copy on GPU
+            # solvers, and __setitem__ moves the result to the device
+            solver.ieps[:, :, 0, comp] = host(solver.ieps[:, :, 0, comp]) / eps
         return solver
 
     def frequencies(self, wavelengths_nm):

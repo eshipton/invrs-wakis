@@ -213,7 +213,9 @@ def metalens_post(challenge, gym, best, summary):
     summary.step("wakis_eval", wakis_eval)
 
     def length_scale():
-        summary["length_scale_solid_void_px"] = length_scale_pixels(np.asarray(best.array) > 0.5)
+        ls = length_scale_pixels(np.asarray(best.array) > 0.5)
+        summary["length_scale_solid_void_px"] = ls
+        summary["length_scale_leaderboard_px"] = ls  # design array alone, as the leaderboard
         summary["target_min_width_spacing_px"] = [
             int(gym.component.seed_density.minimum_width),
             int(gym.component.seed_density.minimum_spacing),
