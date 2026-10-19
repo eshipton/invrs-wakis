@@ -41,6 +41,11 @@ def main():
         res.append({"run_time_ps": rt, "s2": (np.abs(np.asarray(r.s_parameters)) ** 2).tolist(),
                     "eval_metric": float(ch.eval_metric(r)), "time_s": time.time() - t})
         print(res[-1]["run_time_ps"], res[-1]["eval_metric"], res[-1]["time_s"], flush=True)
+        ch.component._sims.clear()  # free the stored adjoint increments
+        del ch, r
+        import gc
+
+        gc.collect()
     ref, _ = gym.component.response(p, max_parallelizm=6)
     s_ref = np.abs(np.asarray(ref.s_parameters)) ** 2
     for x in res:
