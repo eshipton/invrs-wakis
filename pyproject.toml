@@ -29,6 +29,11 @@ dependencies = [
 # provides the same cv2 module
 override-dependencies = ["opencv-python; sys_platform == 'never'"]
 
+[project.optional-dependencies]
+# GPU runs (Cloud Batch with an NVIDIA L4): CuPy with the CUDA 12 toolkit
+# libraries as wheels; the driver comes from the host
+gpu = ["cupy-cuda12x[ctk]>=13.3; sys_platform == 'linux'", "nvidia-ml-py"]
+
 [dependency-groups]
 dev = ["pytest"]
 

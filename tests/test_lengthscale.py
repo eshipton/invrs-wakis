@@ -68,3 +68,38 @@ def test_ste_gradient_and_optimizer_plumbing():
     assert cands
     for c in cands:
         assert fd.meets_targets(c["design"])
+
+
+def test_checkpoint_resume(tmp_path):
+    """A run resumed from its last checkpoint skips the finished stages and
+    returns the same candidate pool (mock objective, no simulation)."""
+    from invrs_wakis.optimize import Checkpointer, SnapshotRecorder
+
+    params = challenges.BY_NAME[NAMES[0]]().component.init(jax.random.PRNGKey(0))
+    fd = FeasibleDensity(params)
+    target = jnp.asarray(random_latent(params, jax.random.PRNGKey(3), 4.0))
+    calls = []
+
+    def response(p):
+        calls.append(1)
+        return jnp.mean((p.array - target) ** 2), {}
+
+    mock = pytypes.SimpleNamespace(
+        component=pytypes.SimpleNamespace(response=response),
+        loss=lambda r: r, eval_metric=lambda r: -r,
+    )
+    stages = [{"beta": 4, "steps": 2},
+              {"beta": 64, "steps": 2, "ste": True, "optimizer": "adam", "lr": 0.05}]
+    lat = np.asarray(params.array)
+    rec = SnapshotRecorder()
+    ck = Checkpointer(tmp_path / "c.pkl", every_s=0.0, recorder=rec)
+    c1, _, _ = optimize_feasible({1: mock}, fd, lat, stages, log=lambda r: None,
+                                 snapshot=rec, checkpoint=ck)
+    n_first = len(calls)
+    rec2 = SnapshotRecorder()
+    ck2 = Checkpointer(tmp_path / "c.pkl", every_s=0.0, recorder=rec2)
+    c2, _, _ = optimize_feasible({1: mock}, fd, lat, stages, log=lambda r: None,
+                                 snapshot=rec2, checkpoint=ck2)
+    assert len(calls) == n_first  # nothing re-simulated
+    assert len(rec2.designs) == len(rec.designs)
+    assert [c["score"] for c in c1] == [c["score"] for c in c2]

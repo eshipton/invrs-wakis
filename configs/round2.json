@@ -1,41 +1,334 @@
 {
-  "_doc": "Round-2 settings per challenge. Stages run in order on the latent of invrs_wakis.lengthscale.FeasibleDensity (conic filter radius filter_radius px, tanh projection with sharpness beta). 'lbfgsb' stages optimize the gray projected density; 'ste' stages simulate the length-scale-repaired binary design (straight-through gradient), so every evaluated design is feasible. weights: {resolution: weight} of the Wakis objective (1 = 40 nm gym grid with the official-matching 'ceviche' port estimator; 2 = 20 nm, 'modal' estimator). The best n_candidates feasible designs (Wakis r=1 eval metric) are scored with the official gym backend; the best official one is kept.",
-  "defaults": {"init": "gym", "filter_radius": null, "n_candidates": 4},
-  "ceviche_lightweight_waveguide_bend": {
-    "stages": [
-      {"beta": 4, "steps": 25}, {"beta": 8, "steps": 25}, {"beta": 16, "steps": 25}, {"beta": 32, "steps": 20},
-      {"beta": 64, "steps": 40, "ste": true, "optimizer": "adam", "lr": 0.02, "weights": {"1": 1.0, "2": 1.0}}
-    ]
-  },
-  "ceviche_lightweight_power_splitter": {
-    "stages": [
-      {"beta": 4, "steps": 25}, {"beta": 8, "steps": 25}, {"beta": 16, "steps": 25}, {"beta": 32, "steps": 20},
-      {"beta": 64, "steps": 40, "ste": true, "optimizer": "adam", "lr": 0.02, "weights": {"1": 1.0, "2": 1.0}}
-    ]
-  },
-  "ceviche_lightweight_mode_converter": {
-    "stages": [
-      {"beta": 4, "steps": 40}, {"beta": 8, "steps": 40}, {"beta": 16, "steps": 30}, {"beta": 32, "steps": 30},
-      {"beta": 64, "steps": 60, "ste": true, "optimizer": "adam", "lr": 0.02, "weights": {"1": 1.0, "2": 1.0}}
-    ]
-  },
-  "ceviche_lightweight_beam_splitter": {
-    "stages": [
-      {"beta": 4, "steps": 50}, {"beta": 8, "steps": 50}, {"beta": 16, "steps": 40}, {"beta": 32, "steps": 30},
-      {"beta": 64, "steps": 60, "ste": true, "optimizer": "adam", "lr": 0.02, "weights": {"1": 1.0, "2": 1.0}}
-    ]
-  },
-  "ceviche_lightweight_wdm": {
-    "stages": [
-      {"beta": 4, "steps": 60}, {"beta": 8, "steps": 50}, {"beta": 16, "steps": 40}, {"beta": 32, "steps": 30},
-      {"beta": 64, "steps": 60, "ste": true, "optimizer": "adam", "lr": 0.02, "weights": {"1": 1.0, "2": 1.0}}
-    ]
-  },
-  "metalens": {
-    "_doc": "untested in round 2; resolution r multiplies the 20 nm metalens bridge resolution",
-    "stages": [
-      {"beta": 4, "steps": 30}, {"beta": 8, "steps": 30}, {"beta": 16, "steps": 30}, {"beta": 32, "steps": 20},
-      {"beta": 64, "steps": 30, "ste": true, "optimizer": "adam", "lr": 0.02, "weights": {"1": 1.0}}
-    ]
-  }
+ "_doc": "Round-2 settings per challenge. Stages run in order on the latent of invrs_wakis.lengthscale.FeasibleDensity (conic filter radius filter_radius px, tanh projection with sharpness beta). 'lbfgsb' stages optimize the gray projected density; 'ste' stages simulate the length-scale-repaired binary design (straight-through gradient), so every evaluated design is feasible. weights: {resolution: weight} of the Wakis objective (1 = 40 nm gym grid with the official-matching 'ceviche' port estimator; 2 = 20 nm, 'modal' estimator). The best n_candidates feasible designs (Wakis r=1 eval metric) are scored with the official gym backend; the best official one is kept.",
+ "defaults": {
+  "init": "gym",
+  "filter_radius": null,
+  "n_candidates": 4
+ },
+ "ceviche_lightweight_waveguide_bend": {
+  "stages": [
+   {
+    "beta": 4,
+    "steps": 25
+   },
+   {
+    "beta": 8,
+    "steps": 25
+   },
+   {
+    "beta": 16,
+    "steps": 25
+   },
+   {
+    "beta": 32,
+    "steps": 20
+   },
+   {
+    "beta": 64,
+    "steps": 40,
+    "ste": true,
+    "optimizer": "adam",
+    "lr": 0.02,
+    "weights": {
+     "1": 1.0,
+     "2": 1.0
+    }
+   }
+  ]
+ },
+ "ceviche_lightweight_power_splitter": {
+  "stages": [
+   {
+    "beta": 4,
+    "steps": 25
+   },
+   {
+    "beta": 8,
+    "steps": 25
+   },
+   {
+    "beta": 16,
+    "steps": 25
+   },
+   {
+    "beta": 32,
+    "steps": 20
+   },
+   {
+    "beta": 64,
+    "steps": 40,
+    "ste": true,
+    "optimizer": "adam",
+    "lr": 0.02,
+    "weights": {
+     "1": 1.0,
+     "2": 1.0
+    }
+   }
+  ]
+ },
+ "ceviche_lightweight_mode_converter": {
+  "stages": [
+   {
+    "beta": 4,
+    "steps": 40
+   },
+   {
+    "beta": 8,
+    "steps": 40
+   },
+   {
+    "beta": 16,
+    "steps": 30
+   },
+   {
+    "beta": 32,
+    "steps": 30
+   },
+   {
+    "beta": 64,
+    "steps": 60,
+    "ste": true,
+    "optimizer": "adam",
+    "lr": 0.02,
+    "weights": {
+     "1": 1.0,
+     "2": 1.0
+    }
+   }
+  ]
+ },
+ "ceviche_lightweight_beam_splitter": {
+  "stages": [
+   {
+    "beta": 4,
+    "steps": 50
+   },
+   {
+    "beta": 8,
+    "steps": 50
+   },
+   {
+    "beta": 16,
+    "steps": 40
+   },
+   {
+    "beta": 32,
+    "steps": 30
+   },
+   {
+    "beta": 64,
+    "steps": 60,
+    "ste": true,
+    "optimizer": "adam",
+    "lr": 0.02,
+    "weights": {
+     "1": 1.0,
+     "2": 1.0
+    }
+   }
+  ]
+ },
+ "ceviche_lightweight_wdm": {
+  "stages": [
+   {
+    "beta": 4,
+    "steps": 60
+   },
+   {
+    "beta": 8,
+    "steps": 50
+   },
+   {
+    "beta": 16,
+    "steps": 40
+   },
+   {
+    "beta": 32,
+    "steps": 30
+   },
+   {
+    "beta": 64,
+    "steps": 60,
+    "ste": true,
+    "optimizer": "adam",
+    "lr": 0.02,
+    "weights": {
+     "1": 1.0,
+     "2": 1.0
+    }
+   }
+  ]
+ },
+ "metalens": {
+  "_doc": "untested in round 2; resolution r multiplies the 20 nm metalens bridge resolution",
+  "stages": [
+   {
+    "beta": 4,
+    "steps": 30
+   },
+   {
+    "beta": 8,
+    "steps": 30
+   },
+   {
+    "beta": 16,
+    "steps": 30
+   },
+   {
+    "beta": 32,
+    "steps": 20
+   },
+   {
+    "beta": 64,
+    "steps": 30,
+    "ste": true,
+    "optimizer": "adam",
+    "lr": 0.02,
+    "weights": {
+     "1": 1.0
+    }
+   }
+  ]
+ },
+ "ceviche_waveguide_bend": {
+  "_doc": "full challenge: 10 nm grid, 6 wavelengths, 8 px targets; the Wakis r=1 grid is the official 10 nm grid (36 cells/lambda in Si), so no finer robustness term (r=2 = 5 nm would cost 8x) and tensor smoothing is a no-op at r=1",
+  "stages": [
+   {
+    "beta": 4,
+    "steps": 30
+   },
+   {
+    "beta": 8,
+    "steps": 30
+   },
+   {
+    "beta": 16,
+    "steps": 25
+   },
+   {
+    "beta": 32,
+    "steps": 20
+   },
+   {
+    "beta": 64,
+    "steps": 40,
+    "ste": true,
+    "optimizer": "adam",
+    "lr": 0.02
+   }
+  ]
+ },
+ "ceviche_mode_converter": {
+  "_doc": "full challenge: 10 nm grid, 6 wavelengths, 8 px targets; the Wakis r=1 grid is the official 10 nm grid (36 cells/lambda in Si), so no finer robustness term (r=2 = 5 nm would cost 8x) and tensor smoothing is a no-op at r=1",
+  "stages": [
+   {
+    "beta": 4,
+    "steps": 30
+   },
+   {
+    "beta": 8,
+    "steps": 30
+   },
+   {
+    "beta": 16,
+    "steps": 25
+   },
+   {
+    "beta": 32,
+    "steps": 20
+   },
+   {
+    "beta": 64,
+    "steps": 40,
+    "ste": true,
+    "optimizer": "adam",
+    "lr": 0.02
+   }
+  ]
+ },
+ "ceviche_power_splitter": {
+  "_doc": "full challenge: 10 nm grid, 6 wavelengths, 8 px targets; the Wakis r=1 grid is the official 10 nm grid (36 cells/lambda in Si), so no finer robustness term (r=2 = 5 nm would cost 8x) and tensor smoothing is a no-op at r=1",
+  "stages": [
+   {
+    "beta": 4,
+    "steps": 30
+   },
+   {
+    "beta": 8,
+    "steps": 30
+   },
+   {
+    "beta": 16,
+    "steps": 25
+   },
+   {
+    "beta": 32,
+    "steps": 20
+   },
+   {
+    "beta": 64,
+    "steps": 40,
+    "ste": true,
+    "optimizer": "adam",
+    "lr": 0.02
+   }
+  ]
+ },
+ "ceviche_beam_splitter": {
+  "_doc": "full challenge: 10 nm grid, 6 wavelengths, 8 px targets; the Wakis r=1 grid is the official 10 nm grid (36 cells/lambda in Si), so no finer robustness term (r=2 = 5 nm would cost 8x) and tensor smoothing is a no-op at r=1",
+  "stages": [
+   {
+    "beta": 4,
+    "steps": 30
+   },
+   {
+    "beta": 8,
+    "steps": 30
+   },
+   {
+    "beta": 16,
+    "steps": 25
+   },
+   {
+    "beta": 32,
+    "steps": 20
+   },
+   {
+    "beta": 64,
+    "steps": 40,
+    "ste": true,
+    "optimizer": "adam",
+    "lr": 0.02
+   }
+  ]
+ },
+ "ceviche_wdm": {
+  "_doc": "full challenge: 10 nm grid, 6 wavelengths, 8 px targets; the Wakis r=1 grid is the official 10 nm grid (36 cells/lambda in Si), so no finer robustness term (r=2 = 5 nm would cost 8x) and tensor smoothing is a no-op at r=1",
+  "stages": [
+   {
+    "beta": 4,
+    "steps": 30
+   },
+   {
+    "beta": 8,
+    "steps": 30
+   },
+   {
+    "beta": 16,
+    "steps": 25
+   },
+   {
+    "beta": 32,
+    "steps": 20
+   },
+   {
+    "beta": 64,
+    "steps": 40,
+    "ste": true,
+    "optimizer": "adam",
+    "lr": 0.02
+   }
+  ]
+ }
 }

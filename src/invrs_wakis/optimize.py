@@ -107,8 +107,8 @@ class SnapshotRecorder:
         )
 
 
-def jsonl_logger(path):
-    f = open(path, "w")
+def jsonl_logger(path, append=False):
+    f = open(path, "a" if append else "w")
 
     def log(rec):
         f.write(json.dumps(rec) + "\n")
@@ -176,6 +176,7 @@ def optimize_feasible(
     log: Callable[[dict], None] = print,
     snapshot: Optional[Callable] = None,
     n_candidates: int = 4,
+    checkpoint=None,
 ):
     """
     Staged optimization over the latent of a `FeasibleDensity`.
@@ -196,6 +197,10 @@ def optimize_feasible(
         ({resolution: weight}, default {1: 1}), 'name'.
     n_candidates : int
         Number of best feasible designs returned.
+    checkpoint : Checkpointer, optional
+        Saves (stage, step, latent, candidate pool) periodically and resumes
+        from the last save (spot preemption). A resumed L-BFGS-B or Adam
+        stage restarts its optimizer state from the saved latent.
 
     Returns
     -------
@@ -210,11 +215,29 @@ def optimize_feasible(
     seed = feasible.seed
     pool = CandidatePool(n_candidates)
     latent = jnp_array(latent0)
+    k0, i0 = 0, 0
+    if checkpoint is not None:
+        state = checkpoint.load()
+        if state is not None:
+            k0, i0 = int(state["stage"]), int(state["step"])
+            latent = jnp_array(state["latent"])
+            pool.items = state["pool"]
+            t0 -= float(state["elapsed"])
+            log({"resumed": True, "stage_index": k0, "step": i0})
+
+    def save(k, i, lat, force=False):
+        if checkpoint is not None:
+            checkpoint.maybe_save({"stage": k, "step": i, "latent": np.asarray(lat),
+                                   "pool": pool.items, "elapsed": time.time() - t0},
+                                  force=force)
 
     def as_params(rho):
         return dataclasses_replace(seed, array=rho)
 
     for k, st in enumerate(stages):
+        if k < k0:
+            continue
+        start = i0 if k == k0 else 0
         beta = float(st["beta"])
         ste = bool(st.get("ste", False))
         weights = {int(r): float(w) for r, w in st.get("weights", {1: 1.0}).items()}
@@ -245,22 +268,24 @@ def optimize_feasible(
             p = types.Density2DArray(array=latent, lower_bound=seed.lower_bound,
                                      upper_bound=seed.upper_bound)
             state = opt.init(p)
-            for i in range(int(st["steps"])):
+            for i in range(start, int(st["steps"])):
                 p = opt.params(state)
                 (value, (metrics, rho)), grad = vg(p.array)
                 grad = dataclasses_replace(p, array=grad)
                 state = opt.update(grad=grad, value=value, params=p, state=state)
                 record(i, value, metrics, rho)
+                save(k, i + 1, opt.params(state).array)
             latent = opt.params(state).array
         else:
             tx = optax.adam(float(st.get("lr", 0.02)))
             state = tx.init(latent)
-            for i in range(int(st["steps"])):
+            for i in range(start, int(st["steps"])):
                 (value, (metrics, rho)), grad = vg(latent)
                 record(i, value, metrics, rho)
                 updates, state = tx.update(grad, state)
                 latent = jax.numpy.clip(optax.apply_updates(latent, updates),
                                         seed.lower_bound, seed.upper_bound)
+                save(k, i + 1, latent)
 
         # End of stage: the repaired design of the current latent (r = 1 only)
         binary = feasible.repair(np.asarray(feasible.projected(latent, beta)))
@@ -270,6 +295,7 @@ def optimize_feasible(
         pool.add(binary, m, name, int(st["steps"]))
         log({"stage": name, "repaired_eval_metric": m[1],
              "length_scale": feasible.length_scale(binary), "time": time.time() - t0})
+        save(k + 1, 0, latent, force=True)
 
     return pool.top(), latent, time.time() - t0
 
@@ -282,3 +308,55 @@ def dataclasses_replace(obj, **kw):
     import dataclasses
 
     return dataclasses.replace(obj, **kw)
+
+
+class Checkpointer:
+    """
+    Periodic optimization checkpoints, local and (on Cloud Batch) in GCS.
+
+    The state (stage index, step, latent, candidate pool, elapsed time) and
+    the snapshot recorder are pickled to `path`; if `gcs_uri` is set the file
+    is copied there with `gcloud storage cp` (the task environment has the
+    gcloud CLI) and fetched from there on start, so that a Batch task retried
+    after a spot preemption resumes the run.
+    """
+
+    def __init__(self, path, gcs_uri=None, every_s=600.0, recorder=None):
+        self.path = path
+        self.gcs_uri = gcs_uri
+        self.every_s = every_s
+        self.recorder = recorder
+        self._last = time.time()
+
+    def _gcloud(self, src, dst):
+        import subprocess
+
+        r = subprocess.run(["gcloud", "storage", "cp", str(src), str(dst), "--quiet"],
+                           capture_output=True, text=True)
+        return r.returncode == 0
+
+    def load(self):
+        import pickle
+
+        if self.gcs_uri and not self.path.exists():
+            self._gcloud(self.gcs_uri, self.path)
+        if not self.path.exists():
+            return None
+        state = pickle.loads(self.path.read_bytes())
+        if self.recorder is not None and "snapshots" in state:
+            self.recorder.__dict__.update(state["snapshots"])
+        return state
+
+    def maybe_save(self, state, force=False):
+        import pickle
+
+        if not force and time.time() - self._last < self.every_s:
+            return
+        if self.recorder is not None:
+            state = dict(state, snapshots=dict(self.recorder.__dict__))
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_bytes(pickle.dumps(state))
+        tmp.replace(self.path)
+        if self.gcs_uri:
+            self._gcloud(self.path, self.gcs_uri)
+        self._last = time.time()

@@ -11,6 +11,7 @@ from invrs_gym import utils as gym_utils
 from scipy.constants import epsilon_0 as EPS0
 from wakis.inverse import AdjointSimulation
 
+from invrs_wakis._design import host
 from invrs_wakis.ceviche import CevicheSimulation
 
 UM = 1e-6
@@ -64,7 +65,7 @@ def ceviche_fields(challenge, params, margin_nm=20.0, n_dense=61):
     mon = sim._monitors["field"]
     ez, (xs, ys, _) = mon.get_field("Ez")
     ez = ez[..., 0] / a[idx, 0][:, None, None]
-    ieps = sim._solver.ieps.array[np.asarray(mon._flat["Ez"])]
+    ieps = host(sim._solver.ieps.array)[host(mon._flat["Ez"])]
     with np.errstate(divide="ignore"):
         eps = (1 / (EPS0 * ieps)).reshape(len(xs), len(ys))
     ports = []

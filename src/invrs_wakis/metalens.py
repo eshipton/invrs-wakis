@@ -75,6 +75,8 @@ class MetalensOptions:
     smoothing : {'none', 'tensor'}
         Material smoothing of the design ('tensor': Wakis MaterialGrid
         subpixel averaging, see `invrs_wakis._design.check_smoothing`).
+    use_gpu : bool
+        Run the Wakis solver (forward and adjoint) on the GPU (CuPy).
     """
 
     resolution: int = 1
@@ -88,6 +90,7 @@ class MetalensOptions:
     polarizations: Tuple[str, ...] = ("ex",)
     store_dtype: object = np.float32
     smoothing: str = "none"
+    use_gpu: bool = False
 
 
 class MetalensGeometry:
@@ -168,14 +171,17 @@ class MetalensGeometry:
             bc_high=["periodic", "cpml", "periodic"],
             n_pml=self.n_pml,
             dt=self.dt,
+            use_gpu=self.options.use_gpu,
             verbose=0,
         )
+        xp = solver.E.xp
         d = np.zeros((self.nx, self.nrows)) if density_rows_bottom_up is None else density_rows_bottom_up
         eps = self.pixel_eps(d)
         for comp in "xyz":
             flat, p0, p1 = self._edge_pixels(solver, comp)
             ieps_rel = 0.5 / eps[p0] + 0.5 / eps[p1]
-            solver.ieps.array[flat] = solver.ieps.array[flat] * ieps_rel
+            flat = xp.asarray(flat)
+            solver.ieps.array[flat] = solver.ieps.array[flat] * xp.asarray(ieps_rel)
         return solver
 
     def design(self, comps):

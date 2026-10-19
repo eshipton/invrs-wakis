@@ -35,14 +35,40 @@ def simulation_estimate(name, challenge) -> Estimate:
         ports = list(g.model.ports)
         monitors = [(len(wl), 2 * g.r * int(p.width), 3) for p in ports]
     store = np.dtype(comp.options.store_dtype).itemsize
-    est = estimate(cells, steps=steps, dtype="float64", backend="cpu", cpml=True,
+    backend = "gpu" if getattr(comp.options, "use_gpu", False) else "cpu"
+    est = estimate(cells, steps=steps, dtype="float64", backend=backend, cpml=True,
                    monitors=monitors, adjoint={"design_edges": design_edges,
                                                "store_bytes": store})
     if getattr(comp.options, "smoothing", "none") == "tensor":
         # Measured: bend r = 2 tensor run peaks at 4.8 GB RSS vs 1.44 GB
         # estimated without the tensor operator (profile_iteration.py)
         est.host_bytes *= TENSOR_MEMORY_FACTOR
+        est.gpu_bytes *= TENSOR_MEMORY_FACTOR
+    if backend == "gpu":
+        # Stored adjoint increments stay on the GPU only if they fit in half
+        # of the free memory (AdjointSimulation store_on_host=None); otherwise
+        # they live in host RAM
+        stored = est.breakdown.get("adjoint stored increments", 0.0) * 1.25
+        if stored > 0.5 * 0.9 * 24e9:
+            est.gpu_bytes -= stored
+        else:
+            est.host_bytes -= stored
     return est
+
+
+# Machines not in wakis.estimate.MACHINES (usable RAM / GPU memory [bytes])
+EXTRA_MACHINES = {
+    "g2-standard-8": dict(ram=32e9, gpu=24e9),
+    "g2-standard-12": dict(ram=48e9, gpu=24e9),
+    "n2-standard-2": dict(ram=8e9, gpu=0),
+    "n2-highmem-8": dict(ram=64e9, gpu=0),
+}
+
+
+def machine_spec(machine):
+    from wakis.estimate import MACHINES
+
+    return MACHINES.get(machine) or EXTRA_MACHINES.get(machine)
 
 
 TENSOR_MEMORY_FACTOR = 3.4
@@ -60,7 +86,8 @@ def run_preflight(name, challenges_by_resolution, machine, extra_sims=1, log=pri
     ests = {r: simulation_estimate(name, ch) for r, ch in challenges_by_resolution.items()}
     total_host = sum(e.host_bytes for e in ests.values())
     total_host += extra_sims * ests[min(ests)].host_bytes + 1.5e9
-    total = Estimate(sum(e.cells for e in ests.values()), total_host, 0.0,
+    total_gpu = sum(e.gpu_bytes for e in ests.values()) + extra_sims * ests[min(ests)].gpu_bytes
+    total = Estimate(sum(e.cells for e in ests.values()), total_host, total_gpu,
                      sum(e.seconds for e in ests.values()))
     info = {
         "machine": machine,
@@ -68,8 +95,9 @@ def run_preflight(name, challenges_by_resolution, machine, extra_sims=1, log=pri
                                     "forward_adjoint_s_est": e.seconds}
                            for r, e in ests.items()},
         "total_host_GB": total_host / 1e9,
+        "total_gpu_GB": total_gpu / 1e9,
     }
     log({"preflight": info})
     if machine:
-        preflight(total, machine)  # raises MemoryError
+        preflight(total, machine_spec(machine) or machine)  # raises MemoryError
     return info

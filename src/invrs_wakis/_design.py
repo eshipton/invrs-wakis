@@ -3,6 +3,11 @@
 
 import numpy as np
 from scipy.constants import epsilon_0 as EPS0
+
+
+def host(array):
+    """NumPy copy of a NumPy or CuPy array."""
+    return array.get() if hasattr(array, "get") else np.asarray(array)
 from scipy.sparse import csr_matrix
 
 
@@ -44,7 +49,7 @@ class PixelDesign:
 
     def _build(self, solver):
         flat, W, c = self._build_fn(solver)
-        keep = solver.ieps.array[flat] != 0  # PEC walls and ghost samples stay
+        keep = host(solver.ieps.array)[flat] != 0  # PEC walls and ghost samples stay
         self.flat_idx = flat[keep]
         self.W = csr_matrix(W)[keep]
         self.c = np.asarray(c, dtype=float)[keep]
@@ -65,7 +70,8 @@ class PixelDesign:
             raise NotImplementedError("PixelDesign writes ieps directly (CPML solvers).")
         if self.W is None:
             self._build(solver)
-        solver.ieps.array[self.flat_idx] = self.ieps(rho)
+        xp = solver.E.xp  # NumPy or CuPy (use_gpu)
+        solver.ieps.array[xp.asarray(self.flat_idx)] = xp.asarray(self.ieps(rho))
 
     def dispersive_group(self, solver):
         return None

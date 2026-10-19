@@ -55,7 +55,12 @@ from invrs_wakis.analysis import (  # noqa: E402
     evaluate,
     length_scale_pixels,
 )
-from invrs_wakis.optimize import SnapshotRecorder, jsonl_logger, optimize  # noqa: E402
+from invrs_wakis.optimize import (  # noqa: E402
+    Checkpointer,
+    SnapshotRecorder,
+    jsonl_logger,
+    optimize,
+)
 
 DEFAULT_CHALLENGES = [
     "ceviche_lightweight_waveguide_bend",
@@ -104,7 +109,8 @@ def build(name, args, resolution=1):
         from invrs_wakis.metalens import MetalensOptions, wakis_metalens_challenge
 
         return wakis_metalens_challenge(MetalensOptions(
-            resolution=args.metalens_resolution * resolution, smoothing=args.smoothing))
+            resolution=args.metalens_resolution * resolution, smoothing=args.smoothing,
+            use_gpu=args.gpu))
     from invrs_wakis.ceviche import SimOptions, wakis_ceviche_challenge
 
     estimator = args.estimator if resolution == 1 else "modal"
@@ -113,15 +119,25 @@ def build(name, args, resolution=1):
     smoothing = args.smoothing if resolution > 1 else "none"
     return wakis_ceviche_challenge(name, SimOptions(
         resolution=resolution, port_estimator=estimator, run_time=args.run_time,
-        smoothing=smoothing))
+        smoothing=smoothing, use_gpu=args.gpu))
 
 
-def ceviche_post(name, challenge, gym, best, summary):
+def is_full(name):
+    """Full ceviche challenge (10 nm grid, 6 wavelengths), not lightweight."""
+    return name.startswith("ceviche_") and "lightweight" not in name
+
+
+def official_kwargs(name):
+    """ceviche solves the wavelengths in threads (SuperLU releases the GIL)."""
+    return {"max_parallelizm": 6} if name.startswith("ceviche_") else {}
+
+
+def ceviche_post(name, challenge, gym, best, summary, args):
     from invrs_wakis.ceviche import SimOptions, wakis_ceviche_challenge
     from invrs_wakis.fields import ceviche_fields
 
     def official():
-        r = evaluate(gym, best)
+        r = evaluate(gym, best, **official_kwargs(name))
         summary.update(
             official_backend="ceviche FDFD (invrs_gym component.response)",
             official_eval_metric=r["eval_metric"],
@@ -148,11 +164,14 @@ def ceviche_post(name, challenge, gym, best, summary):
     summary.step("length_scale", length_scale)
 
     # The same design on other Wakis discretizations / estimators
+    common = {"run_time": args.run_time, "use_gpu": args.gpu}
     variants = {
-        "wakis_r1_ceviche_estimator": SimOptions(port_estimator="ceviche"),
-        "wakis_r1_modal": SimOptions(),
-        "wakis_r2_modal": SimOptions(resolution=2),
+        "wakis_r1_ceviche_estimator": SimOptions(port_estimator="ceviche", **common),
+        "wakis_r1_modal": SimOptions(**common),
+        "wakis_r2_modal": SimOptions(resolution=2, **common),
     }
+    if is_full(name):  # already the 10 nm grid: no finer re-checks
+        variants = {k: v for k, v in variants.items() if k != "wakis_r2_modal"}
     for key, opts in variants.items():
 
         def variant(key=key, opts=opts):
@@ -167,7 +186,8 @@ def ceviche_post(name, challenge, gym, best, summary):
         summary["ceviche_10nm_eval_metric"] = r["eval_metric"]
         summary["ceviche_10nm_S2"] = s2(r["response"])
 
-    summary.step("ceviche_10nm", ceviche_10nm)
+    if not is_full(name):
+        summary.step("ceviche_10nm", ceviche_10nm)
     return lambda: ceviche_fields(challenge, best)
 
 
@@ -293,10 +313,13 @@ def run_feasible(name, seed, out, args):
                    target_min_width_spacing_px=[feasible.min_width, feasible.min_spacing],
                    resolutions=resolutions)
     snapshots = SnapshotRecorder()
+    ckpt = Checkpointer(out / "checkpoint.pkl", gcs_checkpoint_uri(out), recorder=snapshots)
+    resuming = ckpt.gcs_uri is not None or (out / "checkpoint.pkl").exists()
     candidates, latent, opt_time = optimize_feasible(
         challenges_by_r, feasible, initial_latent(cfg, params, seed), stages,
-        jsonl_logger(out / "log.jsonl"), snapshots,
+        jsonl_logger(out / "log.jsonl", append=resuming), snapshots,
         n_candidates=int(args.candidates or cfg.get("n_candidates", 4)),
+        checkpoint=ckpt,
     )
     summary.update(optimization_time_s=opt_time)
     if args.smoothing == "tensor":
@@ -319,10 +342,10 @@ def run_feasible(name, seed, out, args):
         p = as_params(c["design"])
 
         def official(p=p, rec=rec):
-            rec["official_eval_metric"] = evaluate(gym, p)["eval_metric"]
+            rec["official_eval_metric"] = evaluate(gym, p, **official_kwargs(name))["eval_metric"]
 
         summary.step(f"candidate{k}_official", official)
-        if name != "metalens" and args.candidates_10nm:
+        if name != "metalens" and not is_full(name) and args.candidates_10nm:
             def c10(p=p, rec=rec):
                 rec["ceviche_10nm_eval_metric"] = eval_10nm(name, p)["eval_metric"]
 
@@ -338,6 +361,15 @@ def run_feasible(name, seed, out, args):
     post(name, built[1][0], gym, best, summary, out, args, t0)
 
 
+def gcs_checkpoint_uri(out):
+    """gs:// URI of the run's checkpoint when running as a Cloud Batch task
+    of bin/sweep.sh (BUCKET, RUN_ID in the environment), else None."""
+    bucket, run_id = os.environ.get("BUCKET"), os.environ.get("RUN_ID")
+    if not (bucket and run_id):
+        return None
+    return f"gs://{bucket}/sweeps/{run_id}/checkpoints/{out.name}/checkpoint.pkl"
+
+
 def eval_10nm(name, best):
     from invrs_gym import challenges
 
@@ -351,7 +383,7 @@ def post(name, challenge, gym, best, summary, out, args, t0):
     if name == "metalens":
         fields_fn = metalens_post(challenge, gym, best, summary)
     else:
-        fields_fn = ceviche_post(name, challenge, gym, best, summary)
+        fields_fn = ceviche_post(name, challenge, gym, best, summary, args)
 
     def fields():
         np.savez_compressed(out / "fields.npz", **fields_fn())
@@ -407,6 +439,8 @@ def main():
                     help="machine type the run executes on (wakis.estimate.MACHINES, e.g. "
                          "n2-standard-8): abort before simulating if the estimated peak memory "
                          "does not fit")
+    ap.add_argument("--gpu", action="store_true",
+                    help="run the Wakis solver on the GPU (CuPy; install the 'gpu' extra)")
     ap.add_argument("--preflight-only", action="store_true",
                     help="only log the memory estimate (no simulation)")
     ap.add_argument("--arms", nargs="+", default=None, choices=sorted(ARMS),
@@ -474,11 +508,19 @@ def run_spec(spec, argd):
 
 
 def machine_ram(args):
-    from wakis.estimate import MACHINES
+    from invrs_wakis.resources import machine_spec
 
-    if args.machine in MACHINES:
-        return MACHINES[args.machine]["ram"]
+    spec = machine_spec(args.machine) if args.machine else None
+    if spec:
+        return spec["ram"]
     return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+
+
+def machine_gpu(args):
+    from invrs_wakis.resources import machine_spec
+
+    spec = machine_spec(args.machine) if args.machine else None
+    return spec.get("gpu", 0) if spec else 24e9
 
 
 def memory_cap(specs, args):
@@ -486,7 +528,7 @@ def memory_cap(specs, args):
     the largest spec, 85 % of the machine's RAM usable)."""
     from invrs_wakis.resources import run_preflight
 
-    worst = 0.0
+    worst = worst_gpu = 0.0
     for name in {s[0] for s in specs}:
         for arm in {s[2] for s in specs}:
             a = argparse.Namespace(**vars(args))
@@ -499,7 +541,11 @@ def memory_cap(specs, args):
             chs = {r: build(name, a, resolution=r)[0] for r in rs}
             info = run_preflight(name, chs, None, log=lambda _: None)
             worst = max(worst, info["total_host_GB"] * 1e9)
+            worst_gpu = max(worst_gpu, info["total_gpu_GB"] * 1e9)
     cap = max(1, int(0.85 * machine_ram(args) // worst))
+    if args.gpu and worst_gpu > 0:  # all jobs of a task share its GPU
+        cap = min(cap, max(1, int(0.9 * machine_gpu(args) // worst_gpu)))
+        print(f"[driver] GPU preflight: worst spec {worst_gpu / 1e9:.1f} GB", flush=True)
     print(f"[driver] preflight: worst spec {worst / 1e9:.1f} GB -> at most {cap} concurrent "
           f"in {machine_ram(args) / 1e9:.0f} GB", flush=True)
     return cap
@@ -520,6 +566,17 @@ def start_load_logger(interval=60.0):
                 extra = f" cpu {psutil.cpu_percent():.0f} % mem {mem.used / 1e9:.1f} GB"
             except ImportError:
                 extra = ""
+            try:  # GPU utilization and memory (nvidia-ml-py, 'gpu' extra)
+                import pynvml
+
+                pynvml.nvmlInit()
+                for g in range(pynvml.nvmlDeviceGetCount()):
+                    h = pynvml.nvmlDeviceGetHandleByIndex(g)
+                    u = pynvml.nvmlDeviceGetUtilizationRates(h)
+                    m = pynvml.nvmlDeviceGetMemoryInfo(h)
+                    extra += f" gpu{g} {u.gpu} % mem {m.used / 1e9:.1f}/{m.total / 1e9:.0f} GB"
+            except Exception:  # noqa: BLE001 - no GPU / no NVML
+                pass
             print(f"[load] {time.strftime('%H:%M:%S')} loadavg1 {l1:.2f} / {n} cpus"
                   f" ({100 * l1 / n:.0f} %){extra}", flush=True)
             time.sleep(interval)

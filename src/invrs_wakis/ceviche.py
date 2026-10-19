@@ -97,6 +97,8 @@ class SimOptions:
     smoothing : {'none', 'tensor'}
         Material smoothing of the design ('tensor': Wakis MaterialGrid
         subpixel averaging, see `invrs_wakis._design.check_smoothing`).
+    use_gpu : bool
+        Run the Wakis solver (forward and adjoint) on the GPU (CuPy).
     """
 
     resolution: int = 1
@@ -108,6 +110,7 @@ class SimOptions:
     store_dtype: Any = np.float32
     port_estimator: str = "modal"
     smoothing: str = "none"
+    use_gpu: bool = False
 
 
 class CevicheGeometry:
@@ -178,13 +181,14 @@ class CevicheGeometry:
             bc_high=["cpml", "cpml", "periodic"],
             n_pml=self.n_pml,
             dt=self.dt,
+            use_gpu=self.options.use_gpu,
             verbose=0,
         )
         if self.options.smoothing == "tensor":
             # Stability bound of the tensor step relative to the 2D limit (the
             # single periodic z cell adds no z derivative)
             solver.conformal_dt_max = self.dt_2d
-        eps = self._eps_bg_nodes
+        eps = solver.E.xp.asarray(self._eps_bg_nodes)
         for comp in "xyz":
             # Scaling keeps the zero ieps of PEC walls and ghost samples; with
             # CPML the time step reads ieps directly (no operator to rebuild)
