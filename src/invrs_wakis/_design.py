@@ -76,6 +76,10 @@ class PixelDesign:
     def dispersive_group(self, solver):
         return None
 
+    def network_of(self, solver):
+        """No dispersive sub-capacitor network (Wakis AdjointSimulation API)."""
+        return None
+
     def vjp(self, rho, grad_ieps):
         """dF/drho from dF/dieps on the design edges."""
         eps = self.eps_pixels(rho)

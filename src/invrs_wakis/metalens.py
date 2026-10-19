@@ -77,6 +77,9 @@ class MetalensOptions:
         subpixel averaging, see `invrs_wakis._design.check_smoothing`).
     use_gpu : bool
         Run the Wakis solver (forward and adjoint) on the GPU (CuPy).
+    fused : bool
+        GPU only: Wakis fused time step (CPML, sources, DFT monitors and the
+        adjoint in a few kernels with CUDA graphs; `SolverFIT3D(fused=True)`).
     """
 
     resolution: int = 1
@@ -91,6 +94,7 @@ class MetalensOptions:
     store_dtype: object = np.float32
     smoothing: str = "none"
     use_gpu: bool = False
+    fused: bool = False
 
 
 class MetalensGeometry:
@@ -173,6 +177,7 @@ class MetalensGeometry:
             dt=self.dt,
             use_gpu=self.options.use_gpu,
             verbose=0,
+            **({"fused": True} if self.options.fused else {}),
         )
         xp = solver.E.xp
         d = np.zeros((self.nx, self.nrows)) if density_rows_bottom_up is None else density_rows_bottom_up

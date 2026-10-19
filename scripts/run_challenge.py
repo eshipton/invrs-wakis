@@ -110,7 +110,7 @@ def build(name, args, resolution=1):
 
         return wakis_metalens_challenge(MetalensOptions(
             resolution=args.metalens_resolution * resolution, smoothing=args.smoothing,
-            use_gpu=args.gpu))
+            use_gpu=args.gpu, fused=args.fused))
     from invrs_wakis.ceviche import SimOptions, wakis_ceviche_challenge
 
     estimator = args.estimator if resolution == 1 else "modal"
@@ -119,7 +119,7 @@ def build(name, args, resolution=1):
     smoothing = args.smoothing if resolution > 1 else "none"
     return wakis_ceviche_challenge(name, SimOptions(
         resolution=resolution, port_estimator=estimator, run_time=args.run_time,
-        smoothing=smoothing, use_gpu=args.gpu))
+        smoothing=smoothing, use_gpu=args.gpu, fused=args.fused))
 
 
 def is_full(name):
@@ -164,7 +164,7 @@ def ceviche_post(name, challenge, gym, best, summary, args):
     summary.step("length_scale", length_scale)
 
     # The same design on other Wakis discretizations / estimators
-    common = {"run_time": args.run_time, "use_gpu": args.gpu}
+    common = {"run_time": args.run_time, "use_gpu": args.gpu, "fused": args.fused}
     variants = {
         "wakis_r1_ceviche_estimator": SimOptions(port_estimator="ceviche", **common),
         "wakis_r1_modal": SimOptions(**common),
@@ -447,6 +447,8 @@ def main():
                          "does not fit")
     ap.add_argument("--gpu", action="store_true",
                     help="run the Wakis solver on the GPU (CuPy; install the 'gpu' extra)")
+    ap.add_argument("--fused", action="store_true",
+                    help="GPU: Wakis fused time step (SolverFIT3D(fused=True))")
     ap.add_argument("--checkpoint-run", default=None,
                     help="sweep RUN_ID whose GCS checkpoints to resume from and update")
     ap.add_argument("--ignore-gpu-cap", action="store_true",

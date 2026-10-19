@@ -99,6 +99,9 @@ class SimOptions:
         subpixel averaging, see `invrs_wakis._design.check_smoothing`).
     use_gpu : bool
         Run the Wakis solver (forward and adjoint) on the GPU (CuPy).
+    fused : bool
+        GPU only: Wakis fused time step (CPML, sources, DFT monitors and the
+        adjoint in a few kernels with CUDA graphs; `SolverFIT3D(fused=True)`).
     """
 
     resolution: int = 1
@@ -111,6 +114,7 @@ class SimOptions:
     port_estimator: str = "modal"
     smoothing: str = "none"
     use_gpu: bool = False
+    fused: bool = False
 
 
 class CevicheGeometry:
@@ -183,6 +187,7 @@ class CevicheGeometry:
             dt=self.dt,
             use_gpu=self.options.use_gpu,
             verbose=0,
+            **({"fused": True} if self.options.fused else {}),
         )
         if self.options.smoothing == "tensor":
             # Stability bound of the tensor step relative to the 2D limit (the
