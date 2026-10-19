@@ -357,5 +357,29 @@
     "lr": 0.02
    }
   ]
+ },
+ "schedule_v3": {
+  "_doc": "v3 (default for the reruns): no robust stages (they did not shrink the repair drop, see README); gentle STE from beta = 16 at lr = 0.005",
+  "stages": [
+   {
+    "beta": 4,
+    "steps": 25
+   },
+   {
+    "beta": 8,
+    "steps": 25
+   },
+   {
+    "beta": 16,
+    "steps": 25
+   },
+   {
+    "beta": 16,
+    "steps": 100,
+    "ste": true,
+    "optimizer": "adam",
+    "lr": 0.005
+   }
+  ]
  }
 }

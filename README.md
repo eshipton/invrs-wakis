@@ -208,6 +208,30 @@ Other findings from `scripts/profile_iteration.py`:
   r = 2: Nt 19,368, 240 s per iteration. r = 2 tensor: Nt 26,285 (Courant
   0.7), 353 s, peak RSS 4.8 GB (the preflight uses a ×3.4 factor for it).
 
+**Negative result: robust projections do not shrink the repair drop.**
+`schedule_v2` adds eroded/nominal/dilated projection stages at β = 8 and
+16 (thresholds 0.5 ∓ 0.15, worst-case loss; Wang, Lazarov & Sigmund,
+Struct. Multidisc. Optim. 43, 767–784, 2011). It then runs the
+straight-through (STE) stage at β = 16 with lr = 0.005. The table is for the
+lightweight bend, 40 nm only. Each cell is the Wakis eval metric of the
+nominal gray design at the end of the stage → the same design after
+repair.
+
+| seed | β 8 robust | β 16 robust | STE β 16 | official | 10 nm |
+|---|---|---|---|---|---|
+| 0 | 0.13 → −0.36 | 0.17 → −0.70 | 0.41 | 0.452 | 0.448 |
+| 1 | 0.23 → −0.08 | 0.17 → −0.08 | 0.26 | 0.359 | 0.365 |
+| 2 | 0.18 → −1.37 | 0.16 → +0.20 | 0.51 | 0.502 | 0.076 |
+| 3 | 0.30 → −1.82 | 0.27 → −1.46 | 0.06 | 0.404 | −0.098 |
+
+The robust stages lower the nominal gray metric (≈0.17, against ≈0.5
+without them), and the repaired metric still drops by 0.3–1.7. Each robust
+iteration also costs four forward runs and one adjoint run. The scores are
+recovered by the gentle STE stage, not by the robust stages. They are
+comparable to the pilot's 40 nm-only arm (0.32, 0.60). `schedule_v3`
+(`--schedule v3`) therefore drops the robust stages. It keeps β = 4/8/16 and
+100 STE steps at β = 16 with lr = 0.005.
+
 Why round 1 missed the targets: the `density_lbfgsb` stages use a Gaussian
 filter (FWHM = 3 px) and β ≤ 8, which does not bound the feature size once
 the design is thresholded. Five of the ten selected designs came from these

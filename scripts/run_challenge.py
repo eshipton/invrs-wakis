@@ -462,7 +462,7 @@ def main():
     ap.add_argument("--config", default=None,
                     help="JSON config (configs/round2.json): use the length-scale-feasible "
                          "optimizer with the per-challenge stages")
-    ap.add_argument("--schedule", default=None, choices=["v2"],
+    ap.add_argument("--schedule", default=None, choices=["v2", "v3"],
                     help="replace challenge stages with schedule_<name> from --config "
                          "(preserving multi-resolution STE weights)")
     ap.add_argument("--r2-weight", type=float, default=None,
