@@ -1,0 +1,6 @@
+{
+ "_doc": "GPU packing benchmark: 6 L-BFGS-B iterations of the full bend per spec",
+ "defaults": {"init": "gym", "filter_radius": null, "n_candidates": 1},
+ "ceviche_waveguide_bend": {"stages": [{"beta": 8, "steps": 6}]},
+ "ceviche_beam_splitter": {"stages": [{"beta": 8, "steps": 6}]}
+}
