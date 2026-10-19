@@ -487,6 +487,8 @@ ARMS = {
     "r1": {"r2_weight": 0.0, "smoothing": "none"},
     "robust": {"smoothing": "none"},
     "tensor": {"smoothing": "tensor"},
+    # Subpixel-smoothed projection stages (configs/ssp.json) vs --config
+    "ssp": {"smoothing": "none", "config": "configs/ssp.json"},
 }
 def spec_dir(args, name, seed, arm):
     suffix = f"_{arm}" if arm else ""

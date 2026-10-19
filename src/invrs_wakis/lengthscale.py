@@ -18,6 +18,14 @@ simulated design *is* the repaired binary design, while the gradient flows
 through the filter and projection (`ste_density`); every design the
 optimizer evaluates is therefore fabricable, and any of them can be
 submitted.
+
+Subpixel-smoothed projection (SSP, `smoothed_projection`; Hammond et al.,
+Opt. Express 33, 33620 (2025), arXiv:2503.20189) is an alternative to the
+tanh projection: it also uses the norm of the gradient of the filtered
+density, so that the projected design stays a differentiable function of
+the interface positions even at beta = inf (binary except for a ~1 px layer
+at the interfaces). Its threshold (SSP > 1/2 <=> filtered > 1/2) is that of
+the tanh projection, so `repair` and imageruler apply unchanged.
 """
 
 import dataclasses
@@ -45,6 +53,40 @@ def tanh_projection(x, beta: float, eta: float = 0.5):
         return jnp.where(x > eta, 1.0, 0.0)
     num = jnp.tanh(beta * eta) + jnp.tanh(beta * (x - eta))
     return num / (jnp.tanh(beta * eta) + jnp.tanh(beta * (1.0 - eta)))
+
+
+# Smoothing radius of SSP [px]: 2R slightly above the pixel pitch, so that
+# every interface position has a pixel within R (else the gradient vanishes)
+SSP_RADIUS_PX = 0.55
+
+
+def smoothed_projection(x, grad_sq, beta: float, eta: float = 0.5,
+                        radius: float = SSP_RADIUS_PX):
+    """
+    Subpixel-smoothed projection of Hammond et al. (2025), Eqs. (7), (10)-(12).
+
+    With g = |grad x| (grad_sq = g^2, per pixel) and the signed distance
+    d = (eta - x) / g to the planar approximation of the level set x = eta:
+    for |d| < radius,
+        out = (1 - F) P(x - R g F) + F P(x + R g (1 - F)),
+        F = 1/2 - 15/16 u + 5/8 u^3 - 3/16 u^5,  u = d / R
+    (the C^2 fill fraction of a parabolic smoothing kernel), else
+    out = P(x), with P = `tanh_projection`. beta = inf gives F(d) near the
+    level set and exactly 0 / 1 elsewhere. Same formula as
+    `wakis.inverse.jax_tools.smoothed_projection` (Wakis fork).
+    """
+    nonzero = grad_sq > 0
+    g = jnp.where(nonzero, jnp.sqrt(jnp.where(nonzero, grad_sq, 1.0)), 1.0)
+    d = (eta - x) / g
+    smooth = nonzero & (jnp.abs(d) < radius)
+    u = jnp.where(smooth, d / radius, 0.0)
+    F = 0.5 - 15 / 16 * u + 5 / 8 * u**3 - 3 / 16 * u**5
+    minus = tanh_projection(x - radius * g * F, beta, eta)
+    plus = tanh_projection(x + radius * g * (1 - F), beta, eta)
+    return jnp.where(smooth, (1 - F) * minus + F * plus, tanh_projection(x, beta, eta))
+
+
+PROJECTIONS = ("tanh", "ssp")
 
 
 @dataclasses.dataclass
@@ -98,27 +140,55 @@ class FeasibleDensity:
         d = dataclasses.replace(self.seed, array=array)
         return types.symmetrize_density(d).array
 
-    def filtered(self, latent):
-        """Symmetrized, conic-filtered latent in [0, 1] (unit bounds)."""
+    def _filtered_extended(self, latent, extra):
+        """Filtered latent on the design grid grown by `extra` pixels per
+        side (the filter of the padded latent, as the interior)."""
         x = self._to_unit(self.symmetrize(jnp.asarray(latent)))
-        n = self.kernel.shape[0] // 2
+        n = self.kernel.shape[0] // 2 + extra
         mode = ["wrap" if p else "edge" for p in self.periodic]
         x = jnp.pad(x, ((n, n), (0, 0)), mode=mode[0])
         x = jnp.pad(x, ((0, 0), (n, n)), mode=mode[1])
         k = jnp.asarray(self.kernel)[None, None]
-        y = jax.lax.conv_general_dilated(x[None, None], k, (1, 1), "VALID")[0, 0]
-        return y
+        return jax.lax.conv_general_dilated(x[None, None], k, (1, 1), "VALID")[0, 0]
 
-    def projected(self, latent, beta):
-        """Filtered, projected density (gym bounds) with fixed pixels set."""
-        y = tanh_projection(self.filtered(latent), beta)
+    def filtered(self, latent):
+        """Symmetrized, conic-filtered latent in [0, 1] (unit bounds)."""
+        return self._filtered_extended(latent, 0)
+
+    def filtered_gradient(self, latent):
+        """
+        (filtered density, |grad|^2 [1/px^2]): central differences of the
+        filtered field computed one pixel beyond the design grid, so the
+        boundary pixels use the same (padded) surroundings as the filter.
+        """
+        y = self._filtered_extended(latent, 1)
+        gx = 0.5 * (y[2:, 1:-1] - y[:-2, 1:-1])
+        gy = 0.5 * (y[1:-1, 2:] - y[1:-1, :-2])
+        return y[1:-1, 1:-1], gx**2 + gy**2
+
+    def _with_fixed(self, y):
         y = jnp.where(self.fixed_solid, 1.0, jnp.where(self.fixed_void, 0.0, y))
         return self._from_unit(y)
 
-    def ste_density(self, latent, beta):
+    def projected(self, latent, beta, projection: str = "tanh"):
+        """
+        Filtered, projected density (gym bounds) with fixed pixels set.
+        projection: 'tanh' (Wang et al. 2011) or 'ssp' (subpixel-smoothed
+        projection, `smoothed_projection`).
+        """
+        if projection == "ssp":
+            y, q = self.filtered_gradient(latent)
+            return self._with_fixed(smoothed_projection(y, q, beta))
+        if projection != "tanh":
+            raise ValueError(f"projection must be one of {PROJECTIONS}")
+        return self._with_fixed(tanh_projection(self.filtered(latent), beta))
+
+    def ste_density(self, latent, beta, projection: str = "tanh"):
         """Repaired binary design in the forward pass, gradient of
-        `projected` in the backward pass (straight-through estimator)."""
-        rho = self.projected(latent, beta)
+        `projected` in the backward pass (straight-through estimator).
+        With projection='ssp' the backward pass is the SSP gradient, which
+        stays finite at beta = inf (the tanh one vanishes there)."""
+        rho = self.projected(latent, beta, projection)
         feasible = jax.pure_callback(
             lambda r: np.asarray(self.repair(np.asarray(r)), dtype=r.dtype),
             jax.ShapeDtypeStruct(rho.shape, rho.dtype),

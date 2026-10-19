@@ -191,9 +191,11 @@ def optimize_feasible(
     latent0 : array
         Initial latent (pixels, gym bounds).
     stages : list of dict
-        Each with keys 'beta', 'steps', and optionally 'optimizer'
-        ('lbfgsb' | 'adam'), 'lr' (Adam), 'ste' (bool: simulate the
-        repaired binary design, straight-through gradient), 'weights'
+        Each with keys 'beta' (number or "inf"), 'steps', and optionally
+        'optimizer' ('lbfgsb' | 'adam'), 'lr' (Adam), 'ste' (bool: simulate
+        the repaired binary design, straight-through gradient),
+        'projection' ('tanh' (default) | 'ssp': subpixel-smoothed
+        projection, also the STE backward pass), 'weights'
         ({resolution: weight}, default {1: 1}), 'name'.
     n_candidates : int
         Number of best feasible designs returned.
@@ -240,11 +242,13 @@ def optimize_feasible(
         start = i0 if k == k0 else 0
         beta = float(st["beta"])
         ste = bool(st.get("ste", False))
+        proj = st.get("projection", "tanh")
         weights = {int(r): float(w) for r, w in st.get("weights", {1: 1.0}).items()}
-        name = st.get("name") or f"{'ste' if ste else 'density'}_beta{beta:g}"
+        name = st.get("name") or (f"{'ste' if ste else 'density'}"
+                                  f"{'_ssp' if proj == 'ssp' else ''}_beta{beta:g}")
         loss_r = multi_resolution_loss(challenges, weights)
-        to_rho = (lambda l: feasible.ste_density(l, beta)) if ste else (
-            lambda l: feasible.projected(l, beta))
+        to_rho = (lambda l: feasible.ste_density(l, beta, proj)) if ste else (
+            lambda l: feasible.projected(l, beta, proj))
 
         def loss_fn(l, to_rho=to_rho, loss_r=loss_r):
             rho = to_rho(l)

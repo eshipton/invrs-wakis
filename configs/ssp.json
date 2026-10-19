@@ -1,0 +1,28 @@
+{
+ "_doc": "SSP arm of the round-2 pipeline (same parameterization, repair, candidate selection and per-challenge iteration budget as configs/round2.json). Stages use the subpixel-smoothed projection (Hammond et al., Opt. Express 33, 33620 (2025)): a short finite-beta phase (8, 32) finds the topology, then beta = inf (binary except a ~1 px interface layer, still differentiable) shape-optimizes it, and the final straight-through stage simulates the repaired binary design with the SSP(beta = inf) gradient instead of tanh(beta = 64).",
+ "defaults": {
+  "init": "gym",
+  "filter_radius": null,
+  "n_candidates": 4
+ },
+ "ceviche_lightweight_waveguide_bend": {
+  "_doc": "135 steps, as round2.json",
+  "stages": [
+   {"beta": 8, "steps": 30, "projection": "ssp"},
+   {"beta": 32, "steps": 30, "projection": "ssp"},
+   {"beta": "inf", "steps": 35, "projection": "ssp"},
+   {"beta": "inf", "steps": 40, "projection": "ssp", "ste": true, "optimizer": "adam", "lr": 0.02,
+    "weights": {"1": 1.0, "2": 1.0}}
+  ]
+ },
+ "ceviche_lightweight_mode_converter": {
+  "_doc": "200 steps, as round2.json",
+  "stages": [
+   {"beta": 8, "steps": 45, "projection": "ssp"},
+   {"beta": 32, "steps": 45, "projection": "ssp"},
+   {"beta": "inf", "steps": 50, "projection": "ssp"},
+   {"beta": "inf", "steps": 60, "projection": "ssp", "ste": true, "optimizer": "adam", "lr": 0.02,
+    "weights": {"1": 1.0, "2": 1.0}}
+  ]
+ }
+}
